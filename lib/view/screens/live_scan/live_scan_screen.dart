@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:openscan/l10n/app_localizations.dart';
 import 'package:openscan/config/globals.dart';
 import 'package:openscan/core/cv/frame_adapter.dart';
+import 'package:openscan/core/cv/native_decode.dart';
+import 'package:openscan/core/cv/perspective_crop.dart';
 import 'package:openscan/core/data/file_operations.dart';
 import 'package:openscan/core/settings/app_settings.dart';
 import 'package:openscan/core/theme/os_colors.dart';
@@ -14,6 +16,7 @@ import 'package:openscan/core/theme/os_tokens.dart';
 import 'package:openscan/core/theme/os_typography.dart';
 import 'package:openscan/core/cv/models/quad.dart';
 import 'package:openscan/core/metadata/photo_metadata.dart';
+import 'package:openscan/core/ocr/text_recognition.dart';
 import 'package:openscan/view/Widgets/live_scan/live_quad_painter.dart';
 import 'package:openscan/view/screens/crop/crop_screen.dart';
 import 'package:openscan/view/screens/live_scan/auto_capture_detector.dart';
@@ -581,6 +584,7 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           file: File(written.pagePath),
           original: original == null ? null : File(original),
           prepared: true,
+          metadata: await _readCaption(shot, quad, quarterTurns),
         );
       }
       debugPrint('Could not process capture ${shot.path}; storing it raw');
@@ -588,6 +592,34 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       debugPrint('Could not process capture ${shot.path}: $e');
     }
     return LiveCapture(file: shot, quad: quad, quarterTurns: quarterTurns);
+  }
+
+  /// The caption written next to the photo at [quad] on [shot], read as
+  /// the crop screen reads it when it opens: a page shot in a batch never
+  /// goes through that screen. Empty when nothing was found, and for a
+  /// shot with no photo found in it.
+  Future<PhotoMetadata> _readCaption(
+      File shot, Quad? quad, int quarterTurns) async {
+    if (quad == null) return PhotoMetadata.empty;
+    try {
+      final size =
+          await decodedSize(await shot.readAsBytes(), label: shot.path);
+      if (size == null) return PhotoMetadata.empty;
+      final corners = quadInPixelsOf(quad, size.width, size.height);
+      return await readCaption(
+        src: shot.path,
+        width: size.width,
+        height: size.height,
+        photo: [
+          for (final p in corners.points)
+            Offset(p.x / size.width, p.y / size.height),
+        ],
+        quarterTurns: quarterTurns,
+      );
+    } catch (e) {
+      debugPrint('Could not read the caption on ${shot.path}: $e');
+      return PhotoMetadata.empty;
+    }
   }
 
   /// Single mode's second half: the shot goes to the crop screen, its

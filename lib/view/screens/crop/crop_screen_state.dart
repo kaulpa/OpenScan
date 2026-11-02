@@ -693,6 +693,36 @@ class CropScreenState {
     );
   }
 
+  /// Where, in canvas coordinates, the caption of the photo inside the
+  /// corners is on the page ([locateCaption]), read the way the page is
+  /// being shown. Null when there is none, or no recognizer.
+  ///
+  /// Like [readTextRegion], must run before [crop].
+  Future<Rect?> findCaptionRegion() async {
+    final size = imageSize;
+    if (size == null || canvasSize.width <= 0 || canvasSize.height <= 0) {
+      return null;
+    }
+    Offset fraction(Offset p) => Offset(
+          ((p.dx - canvasOffset.dx) / canvasSize.width).clamp(0.0, 1.0),
+          ((p.dy - canvasOffset.dy) / canvasSize.height).clamp(0.0, 1.0),
+        );
+    Offset toCanvas(Offset f) => Offset(
+          canvasOffset.dx + f.dx * canvasSize.width,
+          canvasOffset.dy + f.dy * canvasSize.height,
+        );
+    final caption = await locateCaption(
+      src: imageFile!.path,
+      width: size.width.round(),
+      height: size.height.round(),
+      photo: [for (final p in [tl, tr, br, bl]) fraction(p)],
+      quarterTurns: quarterTurns,
+    );
+    if (caption == null) return null;
+    return Rect.fromPoints(
+        toCanvas(caption.topLeft), toCanvas(caption.bottomRight));
+  }
+
   /// Calculates displacement of point wrt to slope
   ///
   /// The [updateAxis] in [p1] will be calculated with [slope] and [p2].

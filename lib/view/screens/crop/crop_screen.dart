@@ -478,10 +478,9 @@ class _CropImageState extends State<CropImage>
   /// to what it finds if the user hasn't moved them in the meantime.
   Future<void> _detectBehindPage() async {
     await _cropScreen.detectDocument();
-    if (!mounted || _cropScreen.userAdjusted) return;
-    if (_cropScreen.detectedQuad != null) {
-      setState(_cropScreen.initPoints);
-    }
+    if (!mounted || _cropScreen.detectedQuad == null) return;
+    if (!_cropScreen.userAdjusted) setState(_cropScreen.initPoints);
+    await _markCaptionBehindPage();
   }
 
   /// With corners handed in from the viewfinder: looks for the same
@@ -490,8 +489,31 @@ class _CropImageState extends State<CropImage>
   /// the meantime.
   Future<void> _refineBehindPage() async {
     final refined = await _cropScreen.refineDetectedQuad();
-    if (!mounted || !refined || _cropScreen.userAdjusted) return;
-    setState(_cropScreen.initPoints);
+    if (!mounted) return;
+    if (refined && !_cropScreen.userAdjusted) {
+      setState(_cropScreen.initPoints);
+    }
+    await _markCaptionBehindPage();
+  }
+
+  /// Once the corners have settled: finds the photo's caption on the page
+  /// by itself, marks it and reads it — unless the page has a caption
+  /// already or the user has started marking one. Next waits for it, as
+  /// for a region marked by hand.
+  Future<void> _markCaptionBehindPage() async {
+    bool untouched() =>
+        _cropScreen.metadata.value.isEmpty && _cropScreen.textRegions.isEmpty;
+    if (!untouched()) return;
+    _cropScreen.regionsBeingRead.value++;
+    try {
+      final region = await _cropScreen.findCaptionRegion();
+      if (!mounted || region == null || !untouched()) return;
+      _cropScreen.textRegions.add(region);
+      _cropScreen.textRegionsChanged.value++;
+      await _readRegion(region, quietly: true);
+    } finally {
+      _cropScreen.regionsBeingRead.value--;
+    }
   }
 
   /// The primary action, in the app bar rather than the bottom row: the
@@ -750,7 +772,9 @@ class _CropImageState extends State<CropImage>
   }
 
   /// Reads the text in a region just marked and adds it to the caption.
-  Future<void> _readRegion(Rect region) async {
+  /// [quietly], for one marked by the screen itself, says nothing when
+  /// there turns out to be nothing to read.
+  Future<void> _readRegion(Rect region, {bool quietly = false}) async {
     _cropScreen.regionsBeingRead.value++;
     String? text;
     try {
@@ -765,6 +789,7 @@ class _CropImageState extends State<CropImage>
       // still matches what the caption says.
       _cropScreen.textRegions.remove(region);
       _cropScreen.textRegionsChanged.value++;
+      if (quietly) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
