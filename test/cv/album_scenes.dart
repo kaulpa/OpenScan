@@ -233,6 +233,8 @@ img.Image _render(
   List<_Print> prints, {
   double? pageTop,
   Pt? captionAt,
+  List<(double, double, double)> printedLines = const [],
+  double? sleeveFrom,
   int seed = 1,
 }) {
   final image = img.Image(width: width, height: height);
@@ -262,6 +264,34 @@ img.Image _render(
         (colour.$2 * light).round(),
         (colour.$3 * light).round(),
       );
+    }
+  }
+
+  // Printed lines (left, right, top) of 16px type, words of random width.
+  final words = Random(seed + 100);
+  for (final (left, right, top) in printedLines) {
+    var x = left;
+    while (x < right) {
+      final w = 20 + words.nextDouble() * 60;
+      img.fillRect(
+        image,
+        x1: x.round(),
+        y1: top.round(),
+        x2: min(x + w, right).round(),
+        y2: (top + 12 + words.nextInt(5)).round(),
+        color: img.ColorRgb8(60, 60, 70),
+      );
+      x += w + 9;
+    }
+  }
+
+  // A dark sleeve in the frame from [sleeveFrom] rightwards, its edge
+  // leaning a little.
+  if (sleeveFrom != null) {
+    for (int y = 0; y < height; y++) {
+      for (int x = (sleeveFrom + 0.02 * y).round(); x < width; x++) {
+        image.setPixelRgb(x, y, 30, 32, 40);
+      }
     }
   }
 
@@ -425,6 +455,26 @@ List<AlbumScene> albumScenes() {
         bottomRight: picture.fromUnit(0.94, 0.94),
         bottomLeft: picture.fromUnit(0.06, 0.94),
       ),
+    ),
+  );
+
+  // A photo printed in a magazine, its caption set right below it in
+  // lines flush with its left edge, and the reader's sleeve along its
+  // right edge, carrying on below it.
+  final magazine = _quad([150, 260, 700, 268, 712, 800, 140, 794]);
+  scenes.add(
+    AlbumScene(
+      'magazine',
+      _render(
+        900,
+        1200,
+        (232, 232, 228),
+        [_Print(magazine, _alpine, radius: 0)],
+        printedLines: [(144, 330, 822), (144, 620, 850), (144, 560, 878)],
+        sleeveFrom: 704,
+        seed: 9,
+      ),
+      magazine,
     ),
   );
 

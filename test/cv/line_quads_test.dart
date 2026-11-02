@@ -108,35 +108,6 @@ void main() {
       expect(_detect(img.gaussianBlur(page, radius: 2), 320), isNull);
     });
 
-    test('on graph paper, however many squares its lines make', () {
-      final paper = _page();
-      for (int x = 0; x < 900; x += 40) {
-        img.drawLine(
-          paper,
-          x1: x,
-          y1: 0,
-          x2: x + 30,
-          y2: 1199,
-          color: img.ColorRgb8(160, 170, 190),
-          thickness: 2,
-        );
-      }
-      for (int y = 0; y < 1200; y += 40) {
-        img.drawLine(
-          paper,
-          x1: 0,
-          y1: y,
-          x2: 899,
-          y2: y - 30,
-          color: img.ColorRgb8(160, 170, 190),
-          thickness: 2,
-        );
-      }
-      final soft = img.gaussianBlur(paper, radius: 1);
-      expect(_detect(soft, 320), isNull);
-      expect(_detect(soft, kDetectionMaxDimension), isNull);
-    });
-
     test('for the frame itself, when it ends in a dark line', () {
       final page = _page();
       img.drawRect(
@@ -150,6 +121,60 @@ void main() {
       expect(_detect(page, kDetectionMaxDimension), isNull);
       expect(_detect(page, 320), isNull);
     });
+  });
+
+  test('finds a print lying on graph paper, not the squares round it', () {
+    final scene = scenes.firstWhere((s) => s.name == 'seaside');
+    final paper = _page();
+    for (int x = 0; x < 900; x += 40) {
+      img.drawLine(
+        paper,
+        x1: x,
+        y1: 0,
+        x2: x + 30,
+        y2: 1199,
+        color: img.ColorRgb8(160, 170, 190),
+        thickness: 2,
+      );
+    }
+    for (int y = 0; y < 1200; y += 40) {
+      img.drawLine(
+        paper,
+        x1: 0,
+        y1: y,
+        x2: 899,
+        y2: y - 30,
+        color: img.ColorRgb8(160, 170, 190),
+        thickness: 2,
+      );
+    }
+    // The print as it is in the seaside scene, laid on the paper.
+    final print = img.Image.from(scene.image);
+    final t = scene.target;
+    final left = min(t.topLeft.x, t.bottomLeft.x).floor();
+    final right = max(t.topRight.x, t.bottomRight.x).ceil();
+    final top = min(t.topLeft.y, t.topRight.y).floor();
+    final bottom = max(t.bottomLeft.y, t.bottomRight.y).ceil();
+    final page = img.gaussianBlur(paper, radius: 1);
+    final pageColour = print.getPixel(40, 40);
+    for (int y = top; y <= bottom; y++) {
+      for (int x = left; x <= right; x++) {
+        final p = print.getPixel(x, y);
+        // Everything of the scene but its page.
+        if ((p.r - pageColour.r).abs() + (p.g - pageColour.g).abs() > 18) {
+          page.setPixel(x, y, p);
+        }
+      }
+    }
+    for (final longEdge in [kDetectionMaxDimension, 320]) {
+      final found = _detect(page, longEdge);
+      expect(found, isNotNull);
+      expect(
+        _worstCorner(found!, t, page),
+        lessThan(0.015),
+        reason: 'at $longEdge px',
+      );
+    }
   });
 
   test('a quad borrowing the next print\'s edge loses to the print', () {

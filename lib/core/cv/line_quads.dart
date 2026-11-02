@@ -43,9 +43,11 @@ const int _kSearch = 2;
 /// have rounded corners, and their sides only reach the corner as lines.
 const double _kCornerTrim = 0.08;
 
-/// What a quad keeps of its evidence when its sides don't agree which way
-/// round the contrast goes. Not zero: a photo half on a light page and
-/// half on a dark one is still a photo.
+/// What a quad keeps of its evidence when one of its sides disagrees with
+/// the other three about which way round the contrast goes. Not zero: a
+/// print with a sleeve or the next page lying along one side is still a
+/// print. Two against two is no one object on one background, and counts
+/// for nothing.
 const double _kMixedPolarity = 0.6;
 
 /// Pixels at the frame's border whose gradients are ignored ([EdgeMap]):
@@ -142,8 +144,8 @@ class EdgeMap {
 }
 
 /// Edge evidence along one stretch of a line, sampled a pixel apart: per
-/// sample, whether an edge within [_kSearch] crosses it brighter towards
-/// the normal (`plus`) and whether one crosses it darker (`minus`), kept
+/// sample, whether the nearest edge within [_kSearch] crosses it brighter
+/// towards the normal (`plus`) or darker (`minus`), kept
 /// as running totals so any stretch of it can be weighed in constant time.
 class _Profile {
   _Profile(this.start, this.plus, this.minus);
@@ -156,21 +158,38 @@ class _Profile {
   int get length => plus.length - 1;
 
   /// Shares of the samples between [from] and [to] (line parameters, in
-  /// either order, trimmed by [_kCornerTrim]) with an edge each way round.
-  /// Stretches beyond the sampled part count as having none.
-  ({double plus, double minus}) between(double from, double to) {
+  /// either order, trimmed by [_kCornerTrim]) with an edge each way round,
+  /// and for each way the longest run of samples without one, as a share
+  /// too. Stretches beyond the sampled part count as having none.
+  _Shares between(double from, double to) {
     var a = min(from, to), b = max(from, to);
     final trim = (b - a) * _kCornerTrim;
     a += trim;
     b -= trim;
-    final expected = (b - a).floor() + 1;
-    if (expected <= 0) return (plus: 0, minus: 0);
-    final i0 = (a - start).ceil().clamp(0, length);
-    final i1 = ((b - start).floor() + 1).clamp(0, length);
-    if (i1 <= i0) return (plus: 0, minus: 0);
-    return (
+    final first = (a - start).ceil(), last = (b - start).floor();
+    final expected = last - first + 1;
+    if (expected <= 0) return _Shares.none;
+    final i0 = first.clamp(0, length), i1 = (last + 1).clamp(0, length);
+    if (i1 <= i0) return _Shares.none;
+
+    double longestGap(Int32List hits) {
+      var longest = 0, run = i0 - first;
+      for (int k = i0; k < i1; k++) {
+        if (hits[k + 1] > hits[k]) {
+          longest = max(longest, run);
+          run = 0;
+        } else {
+          run++;
+        }
+      }
+      return max(longest, run + last + 1 - i1) / expected;
+    }
+
+    return _Shares(
       plus: (plus[i1] - plus[i0]) / expected,
       minus: (minus[i1] - minus[i0]) / expected,
+      plusGap: longestGap(plus),
+      minusGap: longestGap(minus),
     );
   }
 
@@ -190,17 +209,44 @@ class _Profile {
     for (int k = 0; k < count; k++) {
       final t = from + k;
       final px = ox + t * dx, py = oy + t * dy;
+      // The edge nearest the line decides: an edge of another thing
+      // running alongside — a sleeve, the next print, a few pixels off —
+      // is no evidence against this one. (At these sizes that strip of
+      // page between them looks just like a thin line drawn on it, so a
+      // grid's line counts as an edge too; a print lying on the grid still
+      // wins on edges all round.)
       var up = false, down = false;
-      for (int d = -_kSearch; d <= _kSearch && !(up && down); d++) {
-        final c = edges._crossing(px + d * nx, py + d * ny, nx, ny);
-        if (c > 0) up = true;
-        if (c < 0) down = true;
+      for (int d = 0; d <= _kSearch && !up && !down; d++) {
+        for (final side in d == 0 ? const [0] : [d, -d]) {
+          final c = edges._crossing(px + side * nx, py + side * ny, nx, ny);
+          if (c > 0) up = true;
+          if (c < 0) down = true;
+        }
       }
       plus[k + 1] = plus[k] + (up ? 1 : 0);
       minus[k + 1] = minus[k] + (down ? 1 : 0);
     }
     return _Profile(from, plus, minus);
   }
+}
+
+/// What a stretch of line has to show for itself ([_Profile.between]).
+class _Shares {
+  const _Shares({
+    required this.plus,
+    required this.minus,
+    required this.plusGap,
+    required this.minusGap,
+  });
+
+  static const none = _Shares(plus: 0, minus: 0, plusGap: 1, minusGap: 1);
+
+  final double plus, minus, plusGap, minusGap;
+
+  /// Support for the side being brighter towards the normal, and for it
+  /// being darker ([_support]).
+  double get brighterTowards => _support(plus, minus, plusGap);
+  double get darkerTowards => _support(minus, plus, minusGap);
 }
 
 /// How strongly the frame backs [quad] up as the outline of one object.
@@ -228,17 +274,30 @@ class _Profile {
       0,
       len,
     ).between(0, len);
-    brighterOut.add(_net(shares.plus, shares.minus));
-    darkerOut.add(_net(shares.minus, shares.plus));
+    brighterOut.add(shares.brighterTowards);
+    darkerOut.add(shares.darkerTowards);
   }
   return _assess(quad, brighterOut, darkerOut, edges.width, edges.height);
 }
 
+/// Longest stretch of a side, as a share of it, that may have no edge
+/// without counting against it: a photo corner mount, a fleck of glare.
+const double _kGapAllowance = 0.1;
+
 /// A side's support for one polarity: edges that way round, less those
-/// the other way. A real border is one-sided; texture, or a thin line
-/// such as graph paper's, crosses both ways about equally.
-double _net(double wanted, double opposite) =>
-    (wanted - opposite).clamp(0.0, 1.0);
+/// the other way — a real border is one-sided, while texture crosses both
+/// ways about equally — and less
+/// again for the longest stretch with none at all. A print's border runs
+/// on unbroken; the bottom of a line of text stops where the line does,
+/// and a quad round two prints has the page showing between them.
+double _support(double wanted, double opposite, double gap) {
+  final net = (wanted - opposite).clamp(0.0, 1.0);
+  final broken = ((gap - _kGapAllowance) / (0.5 - _kGapAllowance)).clamp(
+    0.0,
+    1.0,
+  );
+  return net * (1 - broken);
+}
 
 ({double evidence, double score}) _assess(
   Quad quad,
@@ -249,12 +308,18 @@ double _net(double wanted, double opposite) =>
 ) {
   double geo(Iterable<double> v) =>
       pow(v.fold<double>(1, (p, s) => p * max(s, 0.02)), 0.25).toDouble();
-  final evidence = [
-    geo(brighterOut),
-    geo(darkerOut),
-    _kMixedPolarity *
-        geo([for (int i = 0; i < 4; i++) max(brighterOut[i], darkerOut[i])]),
-  ].reduce(max);
+  var evidence = max(geo(brighterOut), geo(darkerOut));
+  for (int odd = 0; odd < 4; odd++) {
+    for (final (usual, other) in [
+      (brighterOut, darkerOut),
+      (darkerOut, brighterOut),
+    ]) {
+      final sides = [
+        for (int i = 0; i < 4; i++) i == odd ? other[i] : usual[i],
+      ];
+      evidence = max(evidence, _kMixedPolarity * geo(sides));
+    }
+  }
 
   final area = polygonArea(quad.points) / (width * height);
   final square = 1 - maxAngleDeviationFraction(quad);
@@ -556,10 +621,12 @@ List<Quad> lineQuadCandidates(EdgeMap edges, {int maxCandidates = 6}) {
         // The line's normal points out of the quad when the centre is on
         // its other side.
         final outIsPlus = cx * line.nx + cy * line.ny < line.rho;
-        final out = outIsPlus ? shares.plus : shares.minus;
-        final into = outIsPlus ? shares.minus : shares.plus;
-        brighterOut.add(_net(out, into));
-        darkerOut.add(_net(into, out));
+        brighterOut.add(
+          outIsPlus ? shares.brighterTowards : shares.darkerTowards,
+        );
+        darkerOut.add(
+          outIsPlus ? shares.darkerTowards : shares.brighterTowards,
+        );
       }
       final assessed = _assess(quad, brighterOut, darkerOut, w, h);
       if (assessed.evidence < kMinQuadEvidence) continue;
