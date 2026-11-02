@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:openscan/core/cv/models/point.dart';
+import 'package:openscan/core/cv/models/quad.dart';
 import 'package:openscan/core/metadata/photo_metadata.dart';
 import 'package:openscan/core/theme/appTheme.dart';
 import 'package:openscan/core/theme/os_tokens.dart';
@@ -22,6 +24,16 @@ Future<void> _settleUntil(WidgetTester tester, bool Function() done) async {
   }
   expect(done(), isTrue, reason: 'timed out waiting for the crop screen');
 }
+
+/// Corners handed in, as the live scan does, so the screen skips edge
+/// detection: that runs on behind the page with a timeout of its own, and
+/// a test that ends before it has settled leaves the timer pending.
+const _corners = Quad(
+  topLeft: Pt(0.1, 0.1),
+  topRight: Pt(0.9, 0.1),
+  bottomRight: Pt(0.9, 0.9),
+  bottomLeft: Pt(0.1, 0.9),
+);
 
 bool _nextEnabled(WidgetTester tester) => tester
     .widgetList<TextButton>(find.widgetWithText(TextButton, 'Weiter'))
@@ -63,8 +75,14 @@ void main() {
         home: Builder(
           builder: (context) => Scaffold(
             body: ElevatedButton(
-              onPressed: () async =>
-                  onDone(await imageCropper(context, page, metadata: metadata)),
+              onPressed: () async => onDone(
+                await imageCropper(
+                  context,
+                  page,
+                  initialQuad: _corners,
+                  metadata: metadata,
+                ),
+              ),
               child: const Text('open'),
             ),
           ),
