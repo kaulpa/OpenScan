@@ -1,3 +1,58 @@
+# OpenScan Foto
+
+Ein Fork von [OpenScan](https://github.com/ethereal-developers/OpenScan) zum
+Digitalisieren alter Fotoalben. Er läuft als eigene App
+(`ch.kaulpa.openscanfoto`) neben dem originalen OpenScan.
+
+## Was anders ist
+
+- **Beschriftung markieren beim Zuschneiden.** Im Zuschnitt auf **Text**
+  tippen und einen Rahmen um die Beschriftung ziehen, auch wenn sie neben
+  dem Foto auf der Albumseite steht. Der Text wird auf dem Telefon erkannt
+  (ML Kit, offline, lateinische Schrift) und kann danach korrigiert werden.
+  Mehrere Rahmen hängen ihren Text untereinander an.
+- **Aufnahmedatum.** Steht im Text ein Datum („Sommer 1968“, „Juli 1968“,
+  „12.7.1968“), wird es übernommen. Teildaten bleiben Teildaten: `1968`
+  heisst „irgendwann 1968“, nicht „1. Januar“.
+- **Metadaten in jedem exportierten JPG**, ohne das Bild neu zu kodieren:
+  - Beschreibung → EXIF `ImageDescription`, `UserComment`, `XPComment`
+    (Windows) und XMP `dc:description` (digiKam, Lightroom, Immich)
+  - Datum → EXIF `DateTimeOriginal` (danach sortieren Google Fotos & Co.)
+    und XMP `photoshop:DateCreated` (mit Teildatum)
+  - Alte Kamera-EXIF (Handy, GPS, Scan-Zeitpunkt) wird entfernt, denn sie
+    beschreibt den Scan, nicht das Foto.
+- **Beschreibung nachträglich bearbeiten** in der Seitenansicht (**Text**),
+  auch für Seiten aus dem Serienmodus.
+- **Zuschnitt greift besser:** grössere Greifzone, der nächstgelegene Punkt
+  gewinnt, und der Punkt springt beim Anfassen nicht mehr unter den Finger.
+- **Fotoqualität:** Seiten werden mit 4096 px / JPEG-Qualität 92 gespeichert
+  (OpenScan: 2400 px / 85). Der Export in „Hoch“ kopiert die gespeicherte
+  Datei verlustfrei.
+- **Export als JPG** ist voreingestellt und landet in
+  `Bilder/OpenScanFoto`, wo Google Fotos den Ordner zur Sicherung anbietet.
+  PDFs landen in `Download/OpenScanFoto`.
+- Deutsche Übersetzung.
+
+## Installieren
+
+Jeder Push auf `master` baut über GitHub Actions eine signierte APK:
+
+**https://github.com/kaulpa/OpenScan/releases/latest/download/OpenScanFoto.apk**
+
+Den Link auf dem Telefon öffnen, die Datei öffnen und die Installation aus
+dieser Quelle einmalig erlauben. Spätere Builds installieren sich als Update
+darüber, solange sie mit demselben Schlüssel signiert sind (Secrets
+`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`).
+
+## Mit Upstream abgleichen
+
+```sh
+git remote add upstream https://github.com/ethereal-developers/OpenScan.git
+git fetch upstream && git merge upstream/master
+```
+
+---
+
 <p align="center">
 <img src="https://github.com/Ethereal-Developers-Inc/OpenScan/blob/master/assets/scan_g.jpeg" height=300>
 </p>

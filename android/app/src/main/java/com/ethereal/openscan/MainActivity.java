@@ -12,5 +12,7 @@ public class MainActivity extends FlutterActivity {
         super.configureFlutterEngine(flutterEngine);
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CaptureStore.CHANNEL)
                 .setMethodCallHandler(new CaptureStore());
+        new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), TextReader.CHANNEL)
+                .setMethodCallHandler(new TextReader(this));
     }
 }

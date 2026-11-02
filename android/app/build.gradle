@@ -42,7 +42,10 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.ethereal.openscan"
+        // Its own id, not OpenScan's, so this fork installs beside the
+        // original instead of over it. The namespace (and with it the Java
+        // package) stays OpenScan's, which keeps upstream merges painless.
+        applicationId "ch.kaulpa.openscanfoto"
         minSdk flutter.minSdkVersion
         targetSdk 36
         versionCode flutterVersionCode.toInteger()
@@ -59,7 +62,11 @@ android {
    }
    buildTypes {
        release {
-           signingConfig signingConfigs.release
+           // Without android/key.properties (a fresh checkout, or CI with
+           // no signing secrets) a release build still comes out, signed
+           // with the debug key — installable, but not as an update to a
+           // build signed with the real key.
+           signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
            minifyEnabled true
        }
    }
@@ -76,4 +83,7 @@ kotlin {
 }
 
 dependencies {
+    // On-device text recognition for captions, Latin script, with the
+    // model bundled so it works offline (see TextReader.java).
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
 }

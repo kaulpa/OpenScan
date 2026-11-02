@@ -1,0 +1,77 @@
+name: Build APK
+
+# Every push to master builds a signed APK and publishes it as a release,
+# so the newest build is always at
+#   https://github.com/<owner>/<repo>/releases/latest/download/OpenScanFoto.apk
+# — a link that can be opened straight on the phone to install or update.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      # AGP 9 needs JDK 17+; the runner ships 21.
+      - name: Use JDK 21
+        run: echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.9
+          cache: true
+
+      - name: Signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::No signing secrets set: this APK is signed with a throwaway debug key and cannot update an installed build."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - run: flutter pub get
+
+      - run: flutter test
+
+      # arm64 only: every Pixel since the 6 runs nothing else, and it keeps
+      # the download small.
+      - name: Build
+        run: |
+          flutter build apk --release --target-platform android-arm64 \
+            --build-number ${{ github.run_number }}
+          cp build/app/outputs/flutter-apk/app-release.apk OpenScanFoto.apk
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)
+          tag="foto-$version-b${{ github.run_number }}"
+          gh release create "$tag" OpenScanFoto.apk \
+            --target "$GITHUB_SHA" \
+            --title "OpenScan Foto $version (Build ${{ github.run_number }})" \
+            --notes "Build ${{ github.run_number }} von ${GITHUB_SHA::7}. Auf dem Telefon OpenScanFoto.apk herunterladen und öffnen, um zu installieren oder zu aktualisieren." \
+            --latest

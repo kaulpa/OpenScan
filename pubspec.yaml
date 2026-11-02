@@ -1,11 +1,11 @@
 name: openscan
-description: An open source app that enables users to scan hardcopies of
-  documents or notes and covert it to a PDF file. No ads, privacy is of the
-  utmost importance.
+description: OpenScan Foto — a fork of OpenScan for digitising old photo
+  albums. Mark a photo's caption while cropping it, read it with on-device
+  text recognition, and get it written into the photo's metadata.
 
 publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
-version: 3.1.0+10
+version: 3.1.0-foto.1+1
 
 environment:
   sdk: '>=3.10.0 <4.0.0'

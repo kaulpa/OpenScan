@@ -56,3 +56,7 @@ android/.project
 android/.settings/
 
 .claude
+# OpenScan Foto signing key (backed up outside the repo, never committed)
+*.jks
+*.keystore
+android/key.properties
