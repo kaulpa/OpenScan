@@ -15,6 +15,8 @@ import 'package:openscan/core/cv/perspective_crop.dart';
 import 'package:openscan/core/cv/platform_store.dart';
 import 'package:openscan/core/data/database_helper.dart';
 import 'package:openscan/core/data/document_naming.dart';
+import 'package:openscan/core/metadata/jpeg_metadata.dart';
+import 'package:openscan/core/metadata/photo_metadata.dart';
 import 'package:openscan/core/models.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -69,6 +71,9 @@ class FileOperations {
   /// [writeCapture]. Nothing is written to the database in that case: a
   /// page the app cannot draw is worse than no page, because it fills a
   /// slot in the document and exports as a hole in the PDF.
+  ///
+  /// [metadata] is the caption and date the page was given on the crop
+  /// screen, recorded with it.
   Future<ImageOS?> saveCapture({
     required File source,
     required String dirPath,
@@ -78,6 +83,7 @@ class FileOperations {
     bool prepared = false,
     File? preparedOriginal,
     int quarterTurns = 0,
+    PhotoMetadata metadata = PhotoMetadata.empty,
   }) async {
     await _ensureDirectory(dirPath);
 
@@ -98,7 +104,7 @@ class FileOperations {
       imgPath: written.pagePath,
       origPath: written.originalPath,
       idx: index,
-    );
+    )..metadata = metadata;
 
     // Awaited: the library grid counts a document's pages by querying
     // them, so a caller that refreshes as soon as this returns would
@@ -797,7 +803,8 @@ class FileOperations {
     }
   }
 
-  /// Writes each page out as a standalone image file rather than a PDF.
+  /// Writes each page out as a standalone image file rather than a PDF,
+  /// with its caption and date written into every JPEG.
   ///
   /// Returns the paths written, newest export first cleared of any partial
   /// results — an export that throws half way leaves nothing behind for the
@@ -812,6 +819,10 @@ class FileOperations {
   }) async {
     return await compute(exportImagesIsolateEntry, {
       'sources': [for (final image in images) image.imgPath],
+      'metadata': [
+        for (final image in images)
+          {'caption': image.caption ?? '', 'date': image.photoDate ?? ''},
+      ],
       'dest': directory.path,
       'baseName': baseName,
       'format': format,
@@ -940,8 +951,16 @@ class FileOperations {
   /// asking for. /Documents/ is not on that list, so every export landed
   /// somewhere the Open button could not reach. Verified on a device:
   /// Documents gives permissionDenied, Downloads opens.
-  Future<Directory> exportDirectory() async {
-    Directory openscanDir = Directory("/storage/emulated/0/Download/OpenScan");
+  ///
+  /// [images] sends JPG and PNG exports to Pictures instead, which is on
+  /// that list too, and is where a photo library looks for photos: Google
+  /// Photos offers to back up a folder there, not one under Downloads.
+  /// The folders are this app's own rather than OpenScan's, so the two
+  /// can be installed side by side without writing into each other's.
+  Future<Directory> exportDirectory({bool images = false}) async {
+    Directory openscanDir = Directory(images
+        ? "/storage/emulated/0/Pictures/OpenScanFoto"
+        : "/storage/emulated/0/Download/OpenScanFoto");
     try {
       if (!openscanDir.existsSync()) openscanDir.createSync(recursive: true);
       return openscanDir;
@@ -969,9 +988,17 @@ class FileOperations {
 
 /// Entry point designed to be run via `compute()`. Re-encodes each source
 /// image into `<dest>/<baseName>_<n>.<format>` and returns the paths.
+///
+/// A JPEG asked for at the quality and size it is already stored at is
+/// copied rather than re-encoded: decoding and encoding a photo in pure
+/// Dart takes many seconds and can only lose detail, to produce what is
+/// already on disk. `params['metadata']`, one `{caption, date}` per
+/// source, is written into every JPEG either way.
 Future<List<String>> exportImagesIsolateEntry(
     Map<String, dynamic> params) async {
   final List<String> sources = List<String>.from(params['sources'] as List);
+  final List<Map> metadata =
+      List<Map>.from(params['metadata'] as List? ?? const []);
   final String dest = params['dest'] as String;
   final String baseName = params['baseName'] as String;
   final String format = params['format'] as String;
@@ -981,17 +1008,39 @@ Future<List<String>> exportImagesIsolateEntry(
   final written = <String>[];
   try {
     for (int i = 0; i < sources.length; i++) {
-      final decoded = img.decodeImage(await File(sources[i]).readAsBytes());
-      if (decoded == null) throw StateError('Could not decode ${sources[i]}');
-
+      final source = await File(sources[i]).readAsBytes();
       final suffix = sources.length == 1 ? '' : '_${i + 1}';
       final path = '$dest/$baseName$suffix.$format';
-      // The preset's pixel cap reaches PNG even though its JPEG quality
-      // does not: shedding pixels is lossy compression PNG can still do.
-      final fitted = fitToMaxEdge(decoded, maxEdge);
-      final bytes = format == 'png'
-          ? img.encodePng(fitted)
-          : img.encodeJpg(fitted, quality: quality);
+
+      Uint8List bytes;
+      final size = format == 'jpg' ? jpegDimensions(source) : null;
+      if (size != null &&
+          quality >= kStoredPageQuality &&
+          (maxEdge == null || max(size.width, size.height) <= maxEdge)) {
+        bytes = source;
+      } else {
+        final decoded = img.decodeImage(source);
+        if (decoded == null) throw StateError('Could not decode ${sources[i]}');
+        // The preset's pixel cap reaches PNG even though its JPEG quality
+        // does not: shedding pixels is lossy compression PNG can still do.
+        final fitted = fitToMaxEdge(decoded, maxEdge);
+        bytes = format == 'png'
+            ? img.encodePng(fitted)
+            : img.encodeJpg(fitted, quality: quality);
+      }
+
+      if (format == 'jpg' && i < metadata.length) {
+        final meta = PhotoMetadata(
+          caption: (metadata[i]['caption'] as String?) ?? '',
+          date: (metadata[i]['date'] as String?) ?? '',
+        );
+        try {
+          bytes = writeJpegMetadata(bytes, meta);
+        } on FormatException catch (e) {
+          // The photo is worth more than its caption.
+          debugPrint('Could not write metadata into ${sources[i]}: $e');
+        }
+      }
       await File(path).writeAsBytes(bytes, flush: true);
       written.add(path);
     }

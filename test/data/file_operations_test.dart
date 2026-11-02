@@ -1,9 +1,11 @@
 import 'dart:io';
 
+import 'package:exif/exif.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:openscan/core/cv/compress.dart';
 import 'package:openscan/core/data/file_operations.dart';
+import 'package:openscan/core/metadata/jpeg_metadata.dart';
 import 'package:openscan/core/models.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -143,5 +145,67 @@ void main() {
     if (stagingDir.existsSync()) {
       expect(stagingDir.listSync(), isEmpty);
     }
+  });
+
+  group('image export', () {
+    Directory exportDir() =>
+        Directory('${root.path}/export')..createSync(recursive: true);
+
+    test('writes each page\'s caption and date into its JPEG', () async {
+      final page = writePage('captioned')
+        ..caption = 'Rimini, Sommer 1968'
+        ..photoDate = '1968-07';
+      final plain = writePage('plain');
+
+      final written = await fileOps.exportImages(
+        images: [page, plain],
+        directory: exportDir(),
+        baseName: 'album',
+        format: 'jpg',
+        quality: 65,
+        maxEdge: 1800,
+      );
+
+      expect(written, hasLength(2));
+      final tags = await readExifFromBytes(File(written[0]).readAsBytesSync());
+      expect(tags['Image ImageDescription']?.printable, 'Rimini, Sommer 1968');
+      expect(tags['EXIF DateTimeOriginal']?.printable, '1968:07:01 12:00:00');
+      final none = await readExifFromBytes(File(written[1]).readAsBytesSync());
+      expect(none.containsKey('Image ImageDescription'), isFalse);
+    });
+
+    test('at the stored quality, copies the page instead of re-encoding it',
+        () async {
+      final page = writePage('stored')..caption = 'Oma und Opa';
+
+      final written = await fileOps.exportImages(
+        images: [page],
+        directory: exportDir(),
+        baseName: 'album',
+        format: 'jpg',
+        quality: kStoredPageQuality,
+        maxEdge: kStoredPageMaxEdge,
+      );
+
+      final source = File(page.imgPath).readAsBytesSync();
+      final exported = File(written.single).readAsBytesSync();
+      expect(exported, writeJpegMetadata(source, page.metadata));
+    });
+
+    test('a page larger than the cap is still scaled down', () async {
+      final page = writePage('huge', width: 600, height: 300);
+
+      final written = await fileOps.exportImages(
+        images: [page],
+        directory: exportDir(),
+        baseName: 'album',
+        format: 'jpg',
+        quality: kStoredPageQuality,
+        maxEdge: 200,
+      );
+
+      expect(jpegDimensions(File(written.single).readAsBytesSync()),
+          (width: 200, height: 100));
+    });
   });
 }

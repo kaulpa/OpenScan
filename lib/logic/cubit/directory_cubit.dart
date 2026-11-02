@@ -10,6 +10,7 @@ import 'package:openscan/core/data/file_operations.dart';
 import 'package:openscan/core/image_filter/apply_filter.dart';
 import 'package:openscan/core/image_filter/filters/document_filters.dart';
 import 'package:openscan/core/image_filter/filters/filters.dart';
+import 'package:openscan/core/metadata/photo_metadata.dart';
 import 'package:openscan/core/models.dart';
 import 'package:openscan/core/settings/app_settings.dart';
 import 'package:openscan/view/screens/crop/crop_screen.dart';
@@ -98,6 +99,8 @@ class DirectoryCubit extends Cubit<DirectoryState> {
         origPath: image['orig_img_path'],
         unfilteredPath: image['unfiltered_img_path'],
         filterName: image['filter_name'],
+        caption: image['caption'],
+        photoDate: image['photo_date'],
         selected: false,
       );
       debugPrint('${tempImage.imgPath} => ${tempImage.idx}');
@@ -190,6 +193,7 @@ class DirectoryCubit extends Cubit<DirectoryState> {
             prepared: capture.prepared,
             original: capture.original,
             quarterTurns: capture.quarterTurns,
+            metadata: capture.metadata,
           ));
         }
       }
@@ -239,6 +243,7 @@ class DirectoryCubit extends Cubit<DirectoryState> {
       keepOriginal: AppSettings.instance.keepOriginal,
       index: state.images!.length + 1,
       dirPath: state.dirPath!,
+      metadata: pending.metadata,
     );
     if (savedImage == null) {
       debugPrint("Skipped ${image.path}: not an image this app can read");
@@ -250,6 +255,8 @@ class DirectoryCubit extends Cubit<DirectoryState> {
       idx: state.imageCount + 1,
       imgPath: savedImage.imgPath,
       origPath: savedImage.origPath,
+      caption: savedImage.caption,
+      photoDate: savedImage.photoDate,
     );
 
     // A default filter is only useful if new pages actually arrive
@@ -325,6 +332,12 @@ class DirectoryCubit extends Cubit<DirectoryState> {
           idx: imageOS.idx,
         );
 
+        // The photo is the same one shot again, so its caption stays —
+        // unless the crop screen just gave it a new one.
+        if (!replacement.metadata.isEmpty) {
+          await _storeMetadata(imageOS, replacement.metadata);
+        }
+
         // A re-scan is a fresh page, so it picks up the default filter the
         // same way a newly captured one does.
         final defaultFilter = AppSettings.instance.defaultFilter;
@@ -347,6 +360,7 @@ class DirectoryCubit extends Cubit<DirectoryState> {
         prepared: capture.prepared,
         original: capture.original,
         quarterTurns: capture.quarterTurns,
+        metadata: capture.metadata,
       ));
     }
 
@@ -365,12 +379,14 @@ class DirectoryCubit extends Cubit<DirectoryState> {
         '${cacheDir.path}/recrop_${DateTime.now().millisecondsSinceEpoch}.jpg');
     File(imageOS.cropSourcePath).copySync(workingCopy.path);
 
-    File? image = await imageCropper(context, workingCopy);
-    if (image == null) {
+    final outcome =
+        await imageCropper(context, workingCopy, metadata: imageOS.metadata);
+    if (outcome == null) {
       // Backed out of the crop screen — leave the stored page as it is.
       if (workingCopy.existsSync()) workingCopy.deleteSync();
       return;
     }
+    final image = outcome.file;
 
     String dir = imageOS.imgPath.substring(0, imageOS.imgPath.lastIndexOf("/"));
     String stamp = DateTime.now().toString();
@@ -415,11 +431,30 @@ class DirectoryCubit extends Cubit<DirectoryState> {
       idx: imageOS.idx,
     );
     debugPrint(imageOS.idx.toString());
+    await _storeMetadata(imageOS, outcome.metadata);
 
     state.images![imageOS.idx! - 1] = imageOS;
 
     debugPrint('Image paths updated');
     emitState(state);
+  }
+
+  /// Gives a page a new caption and date, from the preview's editor.
+  Future<void> updateImageMetadata(
+      ImageOS imageOS, PhotoMetadata metadata) async {
+    await _storeMetadata(imageOS, metadata);
+    state.images![imageOS.idx! - 1] = imageOS;
+    emitState(state);
+  }
+
+  Future<void> _storeMetadata(ImageOS imageOS, PhotoMetadata metadata) async {
+    imageOS.metadata = metadata;
+    await database.updateImageMetadata(
+      tableName: state.dirName!,
+      idx: imageOS.idx,
+      caption: imageOS.caption,
+      photoDate: imageOS.photoDate,
+    );
   }
 
   /// Applies [filter] to a single page, writing the result to disk and
@@ -681,6 +716,7 @@ class _PendingCapture {
   final bool prepared;
   final File? original;
   final int quarterTurns;
+  final PhotoMetadata metadata;
 
   const _PendingCapture({
     required this.file,
@@ -688,5 +724,6 @@ class _PendingCapture {
     this.prepared = false,
     this.original,
     this.quarterTurns = 0,
+    this.metadata = PhotoMetadata.empty,
   });
 }

@@ -1,3 +1,5 @@
+import 'package:openscan/core/metadata/photo_metadata.dart';
+
 class DirectoryOS {
   String dirName;
   String dirPath;
@@ -42,6 +44,14 @@ class ImageOS {
   /// current mode.
   String? filterName;
 
+  /// The caption that belongs to the photo — read off the album page on
+  /// the crop screen, or typed — and when it was taken, as a partial ISO
+  /// date (see [PhotoMetadata]). Kept with the page rather than in its
+  /// file: every filter and re-crop writes a new file, and the export
+  /// writes them into each image it produces.
+  String? caption;
+  String? photoDate;
+
   bool selected;
 
   ImageOS({
@@ -50,8 +60,18 @@ class ImageOS {
     this.origPath,
     this.unfilteredPath,
     this.filterName,
+    this.caption,
+    this.photoDate,
     this.selected = false,
   });
+
+  PhotoMetadata get metadata =>
+      PhotoMetadata(caption: caption ?? '', date: photoDate ?? '');
+
+  set metadata(PhotoMetadata value) {
+    caption = value.caption.isEmpty ? null : value.caption;
+    photoDate = value.date.isEmpty ? null : value.date;
+  }
 
   /// The image a crop should start from: the uncropped original when one
   /// was kept, otherwise the unfiltered version — cropping a filtered
@@ -69,6 +89,8 @@ class ImageOS {
       'origPath': origPath,
       'unfilteredPath': unfilteredPath,
       'filterName': filterName,
+      'caption': caption,
+      'photoDate': photoDate,
       'selected': selected,
     };
   }

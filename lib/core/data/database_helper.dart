@@ -24,7 +24,7 @@ class DatabaseHelper {
 
   static final instance = DatabaseHelper._privateConstructor();
   static const _dbName = "OpenScan.db";
-  static const _dbVersion = 2;
+  static const _dbVersion = 3;
 
   static const _documentsTable = 'documents';
   static const _pagesTable = 'pages';
@@ -76,7 +76,9 @@ class DatabaseHelper {
         img_path TEXT NOT NULL,
         orig_img_path TEXT,
         unfiltered_img_path TEXT,
-        filter_name TEXT)
+        filter_name TEXT,
+        caption TEXT,
+        photo_date TEXT)
       ''');
     // Every page read is "this document's pages, in order".
     await db.execute(
@@ -84,7 +86,14 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) await _migrateFromTablePerDocument(db);
+    // The table-per-document migration builds today's schema outright, so
+    // only a database already on `pages` needs the columns added.
+    if (oldVersion < 2) {
+      await _migrateFromTablePerDocument(db);
+    } else if (oldVersion < 3) {
+      await db.execute('ALTER TABLE $_pagesTable ADD COLUMN caption TEXT');
+      await db.execute('ALTER TABLE $_pagesTable ADD COLUMN photo_date TEXT');
+    }
   }
 
   // <========================= Migration =========================>
@@ -235,7 +244,7 @@ class DatabaseHelper {
     Database db = await database;
     return db.rawQuery('''
       SELECT p.idx, p.img_path, p.orig_img_path, p.unfiltered_img_path,
-             p.filter_name
+             p.filter_name, p.caption, p.photo_date
       FROM $_pagesTable p
       JOIN $_documentsTable d ON d.id = p.document_id
       WHERE d.dir_name = ?
@@ -259,6 +268,8 @@ class DatabaseHelper {
       'orig_img_path': image.origPath,
       'unfiltered_img_path': image.unfilteredPath,
       'filter_name': image.filterName,
+      'caption': image.caption,
+      'photo_date': image.photoDate,
     });
 
     await db.update(
@@ -303,6 +314,27 @@ class DatabaseHelper {
           'unfiltered_img_path': unfilteredPath,
         if (clearFilter || filterName != null) 'filter_name': filterName,
       },
+      where: 'document_id = ? AND idx = ?',
+      whereArgs: [documentId, idx],
+    );
+  }
+
+  /// Records a page's caption and date, replacing what it had.
+  ///
+  /// Returns: Records updated [int]
+  Future<int> updateImageMetadata({
+    required String tableName,
+    required int? idx,
+    String? caption,
+    String? photoDate,
+  }) async {
+    Database db = await database;
+    final documentId = await _documentId(db, tableName);
+    if (documentId == null) return 0;
+
+    return db.update(
+      _pagesTable,
+      {'caption': caption, 'photo_date': photoDate},
       where: 'document_id = ? AND idx = ?',
       whereArgs: [documentId, idx],
     );

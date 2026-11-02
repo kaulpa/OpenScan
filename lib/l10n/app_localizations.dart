@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
+import 'app_localizations_de.dart';
 import 'app_localizations_el.dart';
 import 'app_localizations_en.dart';
 import 'app_localizations_es.dart';
@@ -100,6 +101,7 @@ abstract class AppLocalizations {
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
+    Locale('de'),
     Locale('el'),
     Locale('en'),
     Locale('es'),
@@ -642,7 +644,7 @@ abstract class AppLocalizations {
   /// No description provided for @privacy_body.
   ///
   /// In en, this message translates to:
-  /// **'OpenScan never sends your documents anywhere. No accounts, no cloud, no telemetry.'**
+  /// **'OpenScan Foto never sends your photos anywhere. No accounts, no cloud — text recognition runs on the phone.'**
   String get privacy_body;
 
   /// No description provided for @cache.
@@ -1268,6 +1270,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t launch the url'**
   String get couldnt_launch_url;
+
+  /// Crop screen action that switches to marking the photo's caption
+  ///
+  /// In en, this message translates to:
+  /// **'Text'**
+  String get mark_text;
+
+  /// No description provided for @mark_caption.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark caption'**
+  String get mark_caption;
+
+  /// No description provided for @mark_text_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag a box around the caption — it is read and saved with the photo.'**
+  String get mark_text_hint;
+
+  /// No description provided for @reading_text.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading text…'**
+  String get reading_text;
+
+  /// No description provided for @caption_empty_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'No caption yet. Tap Text and draw a box around it.'**
+  String get caption_empty_hint;
+
+  /// No description provided for @clear_caption.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear caption'**
+  String get clear_caption;
+
+  /// No description provided for @text_recognition_unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Text recognition isn\'t available on this device.'**
+  String get text_recognition_unavailable;
+
+  /// No description provided for @no_text_found.
+  ///
+  /// In en, this message translates to:
+  /// **'No text found in the marked area.'**
+  String get no_text_found;
+
+  /// No description provided for @edit_caption.
+  ///
+  /// In en, this message translates to:
+  /// **'Caption & date'**
+  String get edit_caption;
+
+  /// No description provided for @caption.
+  ///
+  /// In en, this message translates to:
+  /// **'Caption'**
+  String get caption;
+
+  /// Preview toolbar button that opens the caption editor
+  ///
+  /// In en, this message translates to:
+  /// **'Caption'**
+  String get caption_action;
+
+  /// No description provided for @photo_date.
+  ///
+  /// In en, this message translates to:
+  /// **'Date taken'**
+  String get photo_date;
+
+  /// No description provided for @photo_date_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. 1968, 7.1968 or 12.7.1968'**
+  String get photo_date_hint;
+
+  /// No description provided for @photo_date_invalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a year, month.year or day.month.year'**
+  String get photo_date_invalid;
+
+  /// Chip offering a date found in the caption
+  ///
+  /// In en, this message translates to:
+  /// **'Use {date}'**
+  String use_date_from_caption(String date);
 }
 
 class _AppLocalizationsDelegate
@@ -1281,6 +1373,7 @@ class _AppLocalizationsDelegate
 
   @override
   bool isSupported(Locale locale) => <String>[
+    'de',
     'el',
     'en',
     'es',
@@ -1310,6 +1403,8 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
 
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
+    case 'de':
+      return AppLocalizationsDe();
     case 'el':
       return AppLocalizationsEl();
     case 'en':

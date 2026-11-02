@@ -135,8 +135,10 @@ class ExportSheet extends StatefulWidget {
 class _ExportSheetState extends State<ExportSheet> {
   final FileOperations fileOperations = FileOperations();
 
-  ExportFormat _format = ExportFormat.pdf;
-  ExportQuality _quality = ExportQuality.medium;
+  // Photos, not documents: a JPG per page carries its caption and date,
+  // and the stored quality is what an archive of old prints wants.
+  ExportFormat _format = ExportFormat.jpg;
+  ExportQuality _quality = ExportQuality.high;
   ExportPageSize _pageSize = ExportPageSize.a4;
 
   _Stage _stage = _Stage.idle;
@@ -216,7 +218,7 @@ class _ExportSheetState extends State<ExportSheet> {
       } else {
         final directory = share
             ? await fileOperations.shareDirectory()
-            : await fileOperations.exportDirectory();
+            : await fileOperations.exportDirectory(images: true);
         written = await fileOperations.exportImages(
           images: pages,
           directory: directory,

@@ -157,7 +157,7 @@
   "language": "Language",
   "accent_color": "Accent color",
   "privacy_storage": "Privacy & storage",
-  "privacy_body": "OpenScan never sends your documents anywhere. No accounts, no cloud, no telemetry.",
+  "privacy_body": "OpenScan Foto never sends your photos anywhere. No accounts, no cloud — text recognition runs on the phone.",
   "cache": "Cache",
   "clear_cache_q": "Clear cache?",
   "clear_cache_body": "Frees {size} of thumbnail data. Your documents are not affected.",
@@ -304,9 +304,24 @@
   },
   "exported": "Exported",
   "saved_to_folder": "Saved to {folder}",
-  "@saved_to_folder": {"placeholders": {"folder": {"type": "String"}}},
+  "@saved_to_folder": {
+    "placeholders": {
+      "folder": {
+        "type": "String"
+      }
+    }
+  },
   "saved_n_to_folder": "Saved {count} to {folder}",
-  "@saved_n_to_folder": {"placeholders": {"count": {"type": "int"}, "folder": {"type": "String"}}},
+  "@saved_n_to_folder": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "folder": {
+        "type": "String"
+      }
+    }
+  },
   "saved_privately": "Saved inside OpenScan, where other apps can't see it. Use Share to send it somewhere else.",
   "export_failed": "Export failed",
   "no_pages_to_export": "There are no pages to export.",
@@ -359,5 +374,34 @@
   "app_description": "is an open-source app which enables users to scan hard copies of documents and convert it into a PDF file.",
   "app_description_2": "No ads. We don't collect any data.\n We respect your privacy.",
   "open_source_github": "Open source on GitHub",
-  "couldnt_launch_url": "Couldn't launch the url"
+  "couldnt_launch_url": "Couldn't launch the url",
+  "mark_text": "Text",
+  "@mark_text": {
+    "description": "Crop screen action that switches to marking the photo's caption"
+  },
+  "mark_caption": "Mark caption",
+  "mark_text_hint": "Drag a box around the caption — it is read and saved with the photo.",
+  "reading_text": "Reading text…",
+  "caption_empty_hint": "No caption yet. Tap Text and draw a box around it.",
+  "clear_caption": "Clear caption",
+  "text_recognition_unavailable": "Text recognition isn't available on this device.",
+  "no_text_found": "No text found in the marked area.",
+  "edit_caption": "Caption & date",
+  "caption": "Caption",
+  "caption_action": "Caption",
+  "@caption_action": {
+    "description": "Preview toolbar button that opens the caption editor"
+  },
+  "photo_date": "Date taken",
+  "photo_date_hint": "e.g. 1968, 7.1968 or 12.7.1968",
+  "photo_date_invalid": "Enter a year, month.year or day.month.year",
+  "use_date_from_caption": "Use {date}",
+  "@use_date_from_caption": {
+    "description": "Chip offering a date found in the caption",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  }
 }

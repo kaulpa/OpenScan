@@ -634,6 +634,56 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get couldnt_launch_url => '无法打开链接';
+
+  @override
+  String get mark_text => 'Text';
+
+  @override
+  String get mark_caption => 'Mark caption';
+
+  @override
+  String get mark_text_hint =>
+      'Drag a box around the caption — it is read and saved with the photo.';
+
+  @override
+  String get reading_text => 'Reading text…';
+
+  @override
+  String get caption_empty_hint =>
+      'No caption yet. Tap Text and draw a box around it.';
+
+  @override
+  String get clear_caption => 'Clear caption';
+
+  @override
+  String get text_recognition_unavailable =>
+      'Text recognition isn\'t available on this device.';
+
+  @override
+  String get no_text_found => 'No text found in the marked area.';
+
+  @override
+  String get edit_caption => 'Caption & date';
+
+  @override
+  String get caption => 'Caption';
+
+  @override
+  String get caption_action => 'Caption';
+
+  @override
+  String get photo_date => 'Date taken';
+
+  @override
+  String get photo_date_hint => 'e.g. 1968, 7.1968 or 12.7.1968';
+
+  @override
+  String get photo_date_invalid => 'Enter a year, month.year or day.month.year';
+
+  @override
+  String use_date_from_caption(String date) {
+    return 'Use $date';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).

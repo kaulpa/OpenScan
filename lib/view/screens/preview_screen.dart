@@ -9,6 +9,7 @@ import 'package:openscan/core/theme/os_colors.dart';
 import 'package:openscan/core/theme/os_tokens.dart';
 import 'package:openscan/core/theme/os_typography.dart';
 import 'package:openscan/logic/cubit/directory_cubit.dart';
+import 'package:openscan/view/Widgets/metadata/metadata_dialog.dart';
 import 'package:openscan/view/Widgets/os/os_components.dart';
 import 'package:openscan/view/Widgets/preview/preview_bottom_bar.dart';
 import 'package:openscan/view/screens/filter_screen.dart';
@@ -139,6 +140,14 @@ class _PreviewScreenState extends State<PreviewScreen>
           ? pageController.page!.round()
           : (widget.initialIndex ?? 0);
 
+  Future<void> _editCaption(DirectoryState state) async {
+    final cubit = BlocProvider.of<DirectoryCubit>(context);
+    final page = state.images![_currentIndex];
+    final edited = await editPhotoMetadata(context, page.metadata);
+    if (edited == null || !mounted) return;
+    await cubit.updateImageMetadata(page, edited);
+  }
+
   void _confirmDelete(DirectoryState state) {
     final l10n = AppLocalizations.of(context)!;
     showDialog(
@@ -238,6 +247,11 @@ class _PreviewScreenState extends State<PreviewScreen>
                   bottom: 0,
                   child: PreviewScreenBottomBar(
                     visible: _chromeVisible,
+                    caption: metadataSummary(state
+                        .images![(_pageNumber - 1)
+                            .clamp(0, state.images!.length - 1)]
+                        .metadata),
+                    captionOnPressed: () => _editCaption(state),
                     cropOnPressed: () =>
                         BlocProvider.of<DirectoryCubit>(context).cropImage(
                       context,

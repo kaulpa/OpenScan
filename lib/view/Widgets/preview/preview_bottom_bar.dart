@@ -15,6 +15,8 @@ class PreviewScreenBottomBar extends StatelessWidget {
     required this.deleteOnPressed,
     required this.filterOnPressed,
     required this.rescanOnPressed,
+    required this.captionOnPressed,
+    this.caption,
   }) : super(key: key);
 
   final bool visible;
@@ -22,6 +24,11 @@ class PreviewScreenBottomBar extends StatelessWidget {
   final VoidCallback? deleteOnPressed;
   final VoidCallback? filterOnPressed;
   final VoidCallback? rescanOnPressed;
+  final VoidCallback? captionOnPressed;
+
+  /// The page's caption and date in one line, shown above the actions, or
+  /// null when it has none.
+  final String? caption;
 
   @override
   Widget build(BuildContext context) {
@@ -36,28 +43,70 @@ class PreviewScreenBottomBar extends StatelessWidget {
           padding: const EdgeInsets.only(top: OSSpace.xs, bottom: OSSpace.xs),
           child: SafeArea(
             top: false,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _PreviewAction(
-                  icon: Icons.crop_rounded,
-                  label: l10n.crop,
-                  onPressed: cropOnPressed,
-                ),
-                _PreviewAction(
-                  icon: Icons.delete_outline_rounded,
-                  label: l10n.delete,
-                  onPressed: deleteOnPressed,
-                ),
-                _PreviewAction(
-                  icon: Icons.tune_rounded,
-                  label: l10n.filter_action,
-                  onPressed: filterOnPressed,
-                ),
-                _PreviewAction(
-                  icon: Icons.photo_camera_rounded,
-                  label: l10n.rescan,
-                  onPressed: rescanOnPressed,
+                if (caption != null)
+                  InkWell(
+                    onTap: captionOnPressed,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        OSSpace.md,
+                        OSSpace.xs,
+                        OSSpace.md,
+                        OSSpace.sm,
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.notes_rounded,
+                            size: 18,
+                            color: OSColors.chromeMuted,
+                          ),
+                          const SizedBox(width: OSSpace.sm),
+                          Expanded(
+                            child: Text(
+                              caption!,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: OSTypography.body.copyWith(
+                                color: OSColors.chromeOnBackground,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _PreviewAction(
+                      icon: Icons.crop_rounded,
+                      label: l10n.crop,
+                      onPressed: cropOnPressed,
+                    ),
+                    _PreviewAction(
+                      icon: Icons.delete_outline_rounded,
+                      label: l10n.delete,
+                      onPressed: deleteOnPressed,
+                    ),
+                    _PreviewAction(
+                      icon: Icons.tune_rounded,
+                      label: l10n.filter_action,
+                      onPressed: filterOnPressed,
+                    ),
+                    _PreviewAction(
+                      icon: Icons.photo_camera_rounded,
+                      label: l10n.rescan,
+                      onPressed: rescanOnPressed,
+                    ),
+                    _PreviewAction(
+                      icon: Icons.notes_rounded,
+                      label: l10n.caption_action,
+                      onPressed: captionOnPressed,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -92,9 +141,12 @@ class _PreviewAction extends StatelessWidget {
           children: [
             Icon(icon, color: OSColors.chromeOnBackground, size: 22),
             const SizedBox(height: OSSpace.xxs),
-            Text(label,
-                style: OSTypography.caption
-                    .copyWith(color: OSColors.chromeOnBackground)),
+            Text(
+              label,
+              style: OSTypography.caption.copyWith(
+                color: OSColors.chromeOnBackground,
+              ),
+            ),
           ],
         ),
       ),

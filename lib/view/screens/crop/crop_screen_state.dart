@@ -12,6 +12,8 @@ import 'package:openscan/core/cv/perspective_crop.dart';
 import 'package:openscan/core/cv/native_decode.dart';
 import 'package:openscan/core/cv/platform_store.dart';
 import 'package:openscan/core/cv/compress.dart';
+import 'package:openscan/core/metadata/photo_metadata.dart';
+import 'package:openscan/core/ocr/text_recognition.dart';
 
 /// UI-facing detection state: loading until the page can be shown,
 /// searching while detection runs behind a page that is already on screen
@@ -114,8 +116,39 @@ class CropScreenState {
   /// Reverse step when neighbor crosses over: 11
   int crossoverAdjust = 11;
 
-  /// Detects point from a distance: 20
-  int pickupDistance = 20;
+  /// How far from a handle, in screen pixels, a touch still picks it up:
+  /// about a fingertip. It used to be 20, which meant aiming at a dot
+  /// smaller than the finger covering it, and a drag that started just
+  /// off it did nothing at all.
+  int pickupDistance = 36;
+
+  /// From the touch to the handle it picked up, in canvas coordinates.
+  /// Added to every move, so the handle keeps its distance from the
+  /// finger instead of jumping under it — the finger would hide exactly
+  /// the edge being lined up.
+  Offset grabOffset = Offset.zero;
+
+  /// Caption regions marked on the page, in the same unrotated canvas
+  /// coordinates as the corners, in the order they were marked.
+  final List<Rect> textRegions = [];
+
+  /// The region being dragged out right now, if any.
+  Rect? draftTextRegion;
+  Offset? _draftStart;
+
+  /// Smallest side, in canvas pixels, a marked region needs to count —
+  /// anything smaller was a tap, not a box.
+  static const double minTextRegionSide = 12;
+
+  /// Notifies the overlay when a region is added, moved or cleared.
+  ValueNotifier<int> textRegionsChanged = ValueNotifier(0);
+
+  /// Caption and date gathered on this screen: read from the marked
+  /// regions, or typed in.
+  ValueNotifier<PhotoMetadata> metadata = ValueNotifier(PhotoMetadata.empty);
+
+  /// How many marked regions are still being read.
+  ValueNotifier<int> regionsBeingRead = ValueNotifier(0);
 
   /// Notifies magnifier when points move
   ValueNotifier<bool> showMagnifier = ValueNotifier(false);
@@ -512,36 +545,112 @@ class CropScreenState {
     }
   }
 
-  /// Gets the current moving point
+  /// Picks up the handle nearest the touch, if one is within
+  /// [pickupDistance] of it.
+  ///
+  /// Nearest rather than first-listed: on a small page a corner and the
+  /// middle of an edge can both be in reach, and the order they were
+  /// checked in used to decide which one moved — often not the one under
+  /// the finger.
   getMovingPoint(DragStartDetails startDetails) {
     final pos = startDetails.localPosition;
-    if (getDistance(pos.dx, pos.dy, tl.dx, tl.dy) < pickupDistance) {
-      movingPoint.name = 'tl';
-      movingPoint.offset = tl;
-    } else if (getDistance(pos.dx, pos.dy, tr.dx, tr.dy) < pickupDistance) {
-      movingPoint.name = 'tr';
-      movingPoint.offset = tr;
-    } else if (getDistance(pos.dx, pos.dy, bl.dx, bl.dy) < pickupDistance) {
-      movingPoint.name = 'bl';
-      movingPoint.offset = bl;
-    } else if (getDistance(pos.dx, pos.dy, br.dx, br.dy) < pickupDistance) {
-      movingPoint.name = 'br';
-      movingPoint.offset = br;
-    } else if (getDistance(pos.dx, pos.dy, t.dx, t.dy) < pickupDistance) {
-      movingPoint.name = 't';
-      movingPoint.offset = t;
-    } else if (getDistance(pos.dx, pos.dy, b.dx, b.dy) < pickupDistance) {
-      movingPoint.name = 'b';
-      movingPoint.offset = b;
-    } else if (getDistance(pos.dx, pos.dy, l.dx, l.dy) < pickupDistance) {
-      movingPoint.name = 'l';
-      movingPoint.offset = l;
-    } else if (getDistance(pos.dx, pos.dy, r.dx, r.dy) < pickupDistance) {
-      movingPoint.name = 'r';
-      movingPoint.offset = r;
-    } else {
-      movingPoint.name = 'none';
+    final handles = {
+      'tl': tl,
+      'tr': tr,
+      'bl': bl,
+      'br': br,
+      't': t,
+      'b': b,
+      'l': l,
+      'r': r,
+    };
+    // [pos] is in canvas coordinates, which a turned page shows scaled.
+    final scale = scaleForTurns(turns.toDouble());
+    double nearest = pickupDistance / (scale <= 0 ? 1 : scale);
+    movingPoint.name = 'none';
+    grabOffset = Offset.zero;
+    handles.forEach((name, handle) {
+      final distance = (handle - pos).distance;
+      if (distance < nearest) {
+        nearest = distance;
+        movingPoint.name = name;
+        movingPoint.offset = handle;
+        grabOffset = handle - pos;
+      }
+    });
+  }
+
+  // <=========================== Caption regions ===========================>
+
+  /// Starts dragging out a caption region at [canvasPoint].
+  void startTextRegion(Offset canvasPoint) {
+    _draftStart = constraintPointToBoundary(canvasPoint);
+    draftTextRegion = Rect.fromPoints(_draftStart!, _draftStart!);
+    textRegionsChanged.value++;
+  }
+
+  /// Moves the far corner of the region being dragged out.
+  void updateTextRegion(Offset canvasPoint) {
+    final start = _draftStart;
+    if (start == null) return;
+    draftTextRegion =
+        Rect.fromPoints(start, constraintPointToBoundary(canvasPoint));
+    textRegionsChanged.value++;
+  }
+
+  /// Ends the drag. Returns the region when it is big enough to be one,
+  /// having added it to [textRegions]; null when the drag was a tap.
+  Rect? finishTextRegion() {
+    final region = draftTextRegion;
+    draftTextRegion = null;
+    _draftStart = null;
+    textRegionsChanged.value++;
+    if (region == null ||
+        region.width < minTextRegionSide ||
+        region.height < minTextRegionSide) {
+      return null;
     }
+    textRegions.add(region);
+    textRegionsChanged.value++;
+    return region;
+  }
+
+  /// Forgets every marked region and what was read from them.
+  void clearTextRegions() {
+    textRegions.clear();
+    draftTextRegion = null;
+    _draftStart = null;
+    textRegionsChanged.value++;
+  }
+
+  /// Reads the text inside [region] of the photo, turned the way the page
+  /// is being shown, so a caption read upright on screen is read upright.
+  ///
+  /// Must run before [crop]: that writes the cropped page over the photo
+  /// the region was marked on. Returns null when recognition isn't
+  /// available, '' when the region holds no text it can make out.
+  Future<String?> readTextRegion(Rect region) async {
+    final size = imageSize;
+    if (size == null || canvasSize.width <= 0 || canvasSize.height <= 0) {
+      return null;
+    }
+    Pt fraction(Offset p) => Pt(
+          ((p.dx - canvasOffset.dx) / canvasSize.width).clamp(0.0, 1.0),
+          ((p.dy - canvasOffset.dy) / canvasSize.height).clamp(0.0, 1.0),
+        );
+    final corners = Quad(
+      topLeft: fraction(region.topLeft),
+      topRight: fraction(region.topRight),
+      bottomRight: fraction(region.bottomRight),
+      bottomLeft: fraction(region.bottomLeft),
+    );
+    return readTextInRegion(
+      src: imageFile!.path,
+      corners: corners,
+      width: (region.width / canvasSize.width * size.width).round(),
+      height: (region.height / canvasSize.height * size.height).round(),
+      quarterTurns: quarterTurns,
+    );
   }
 
   /// Calculates displacement of point wrt to slope

@@ -166,7 +166,8 @@ Future<void> _openCropScreen(
       builder: (context) => Scaffold(
         body: Center(
           child: ElevatedButton(
-            onPressed: () async => onReturn(await imageCropper(context, file)),
+            onPressed: () async =>
+                onReturn((await imageCropper(context, file))?.file),
             child: const Text('Crop this'),
           ),
         ),

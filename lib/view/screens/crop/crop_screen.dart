@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:openscan/core/cv/models/detection_result.dart';
 import 'package:openscan/core/cv/models/quad.dart';
+import 'package:openscan/core/metadata/photo_metadata.dart';
 import 'package:openscan/core/settings/app_settings.dart';
 import 'package:openscan/core/theme/appTheme.dart';
 import 'package:openscan/core/theme/os_colors.dart';
@@ -12,30 +13,45 @@ import 'package:openscan/core/theme/os_tokens.dart';
 import 'package:openscan/core/theme/os_typography.dart';
 import 'package:openscan/l10n/app_localizations.dart';
 import 'package:openscan/view/Widgets/cropper/polygon_painter.dart';
+import 'package:openscan/view/Widgets/cropper/text_region_painter.dart';
+import 'package:openscan/view/Widgets/metadata/metadata_dialog.dart';
 import 'package:openscan/view/screens/crop/crop_screen_state.dart';
+
+/// What the crop screen hands back: the cropped [file] and the caption
+/// and date gathered alongside it.
+class CropOutcome {
+  final File file;
+  final PhotoMetadata metadata;
+
+  const CropOutcome(this.file, this.metadata);
+}
 
 /// Pushes the crop screen for [image].
 ///
 /// Returns the cropped file (the same path — the crop is written in
-/// place), or null if the user backed out without cropping. Callers that
-/// want "unchanged image" semantics on cancel can fall back to [image]
-/// themselves; callers re-cropping an existing page use the null to leave
-/// that page alone.
+/// place) with the photo's caption, or null if the user backed out
+/// without cropping. Callers that want "unchanged image" semantics on
+/// cancel can fall back to [image] themselves; callers re-cropping an
+/// existing page use the null to leave that page alone.
 ///
 /// [initialQuad], in the live-scan overlay's fractional portrait
 /// coordinates, places the corners where the viewfinder had them instead
 /// of detecting the page again on the still. [initialTurns] opens the page
 /// already turned that many quarter turns clockwise, as if Rotate had been
-/// pressed — the corners stay on the page either way.
-Future<File?> imageCropper(BuildContext context, File image,
-    {Quad? initialQuad, int initialTurns = 0}) async {
-  return await Navigator.push<File?>(
+/// pressed — the corners stay on the page either way. [metadata] is the
+/// caption the page already has, for a re-crop.
+Future<CropOutcome?> imageCropper(BuildContext context, File image,
+    {Quad? initialQuad,
+    int initialTurns = 0,
+    PhotoMetadata metadata = PhotoMetadata.empty}) async {
+  return await Navigator.push<CropOutcome?>(
     context,
     MaterialPageRoute(
       builder: (context) => CropImage(
         file: image,
         initialQuad: initialQuad,
         initialTurns: initialTurns,
+        initialMetadata: metadata,
       ),
     ),
   );
@@ -55,12 +71,22 @@ const double _kMagnifierSize = 80.0;
 /// the finger doesn't cover it.
 const double _kMagnifierGap = 40.0;
 
+/// Height of the caption line above the action row. Fixed whatever it
+/// says: the page is measured once, so the space around it can't change.
+const double _kCaptionStripHeight = 52.0;
+
 class CropImage extends StatefulWidget {
   final File? file;
   final Quad? initialQuad;
   final int initialTurns;
+  final PhotoMetadata initialMetadata;
 
-  CropImage({this.file, this.initialQuad, this.initialTurns = 0});
+  CropImage({
+    this.file,
+    this.initialQuad,
+    this.initialTurns = 0,
+    this.initialMetadata = PhotoMetadata.empty,
+  });
 
   _CropImageState createState() => _CropImageState();
 }
@@ -70,6 +96,10 @@ class _CropImageState extends State<CropImage>
   CropScreenState _cropScreen = CropScreenState();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   bool cropLoading = false;
+
+  /// Marking the caption rather than moving the corners: a drag on the
+  /// page draws a box around text, which is then read into the caption.
+  bool _textMode = false;
 
   /// Drives the quarter-turn animation. One controller for the whole
   /// screen, rather than an implicit animation on the image alone: the
@@ -95,6 +125,7 @@ class _CropImageState extends State<CropImage>
     super.initState();
     _cropScreen.imageFile = widget.file;
     _cropScreen.turns = widget.initialTurns;
+    _cropScreen.metadata.value = widget.initialMetadata;
     _turnAnimation = AlwaysStoppedAnimation(widget.initialTurns.toDouble());
 
     /// Takes the viewfinder's corners, or measures the page so detection
@@ -181,9 +212,14 @@ class _CropImageState extends State<CropImage>
           // shouldn't sit inside a warm-white frame.
           backgroundColor: OSColors.chromeBackground,
           key: _scaffoldKey,
+          // The page is measured once, when it is first laid out; a
+          // keyboard opening for the caption editor must not squeeze it.
+          resizeToAvoidBottomInset: false,
           appBar: AppBar(
             title: Text(
-              AppLocalizations.of(context)!.adjust_edges,
+              _textMode
+                  ? AppLocalizations.of(context)!.mark_caption
+                  : AppLocalizations.of(context)!.adjust_edges,
               style: OSTypography.subtitle
                   .copyWith(color: OSColors.chromeOnBackground),
             ),
@@ -203,17 +239,29 @@ class _CropImageState extends State<CropImage>
           body: GestureDetector(
             key: _cropScreen.bodyKey,
             onPanUpdate: (updateDetails) {
+              if (_textMode) {
+                _cropScreen.updateTextRegion(
+                    _cropScreen.fromDisplay(updateDetails.localPosition));
+                return;
+              }
               // Touches land on the page as it is being shown; the polygon
               // lives in the page's own unrotated coordinates.
               _cropScreen.updatedPoint.value = DragUpdateDetails(
                 globalPosition: updateDetails.globalPosition,
                 localPosition:
-                    _cropScreen.fromDisplay(updateDetails.localPosition),
+                    _cropScreen.fromDisplay(updateDetails.localPosition) +
+                        _cropScreen.grabOffset,
                 delta: updateDetails.delta,
               );
               _cropScreen.updatePolygon();
             },
             onPanStart: (startDetails) {
+              if (_textMode) {
+                if (!_cropScreen.imageRendered.value) return;
+                _cropScreen.startTextRegion(
+                    _cropScreen.fromDisplay(startDetails.localPosition));
+                return;
+              }
               _cropScreen.calculateAllSlopes();
               _cropScreen.getMovingPoint(DragStartDetails(
                 globalPosition: startDetails.globalPosition,
@@ -226,6 +274,11 @@ class _CropImageState extends State<CropImage>
               }
             },
             onPanEnd: (details) {
+              if (_textMode) {
+                final region = _cropScreen.finishTextRegion();
+                if (region != null) _readRegion(region);
+                return;
+              }
               _cropScreen.movingPoint.name = 'none';
               _cropScreen.movingPoint.offset = Offset.zero;
               _cropScreen.showMagnifier.value = false;
@@ -303,7 +356,12 @@ class _CropImageState extends State<CropImage>
                         child: Stack(
                           children: [
                             Positioned.fill(
-                              child: ValueListenableBuilder(
+                              // Still shown while marking text, faded, so
+                              // the caption can be found relative to the
+                              // photo it belongs to.
+                              child: Opacity(
+                                opacity: _textMode ? 0.35 : 1,
+                                child: ValueListenableBuilder(
                                   valueListenable: _cropScreen.updatedPoint,
                                   builder: (context, _updatedPoint, _) {
                                     return AnimatedBuilder(
@@ -334,12 +392,15 @@ class _CropImageState extends State<CropImage>
                                       },
                                     );
                                   }),
+                              ),
                             ),
+                            Positioned.fill(child: _textRegionOverlay()),
                           ],
                         ),
                       );
                     },
                   ),
+                  if (_textMode) _textModeHint(),
                   ValueListenableBuilder(
                     valueListenable: _cropScreen.showMagnifier,
                     builder: (context, bool _showMagnifier, _) {
@@ -423,9 +484,13 @@ class _CropImageState extends State<CropImage>
   /// when you are done adjusting it.
   Widget nextAction() {
     return ValueListenableBuilder(
+      valueListenable: _cropScreen.regionsBeingRead,
+      builder: (context, int reading, _) => ValueListenableBuilder(
       valueListenable: _cropScreen.imageRendered,
       builder: (context, bool imageRendered, _) {
-        final enabled = imageRendered && !cropLoading;
+        // Not while a caption is still being read: the crop writes over
+        // the photo it is being read from, and the text would be lost.
+        final enabled = imageRendered && !cropLoading && reading == 0;
         return TextButton(
           onPressed: enabled ? _cropAndPop : null,
           child: Text(
@@ -439,6 +504,7 @@ class _CropImageState extends State<CropImage>
           ),
         );
       },
+      ),
     );
   }
 
@@ -449,7 +515,10 @@ class _CropImageState extends State<CropImage>
     setState(() => cropLoading = false);
 
     if (result is CropSuccess) {
-      Navigator.pop(context, _cropScreen.imageFile);
+      Navigator.pop(
+        context,
+        CropOutcome(_cropScreen.imageFile!, _cropScreen.metadata.value),
+      );
     } else if (result is CropFailure) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context)!.couldnt_crop)),
@@ -475,45 +544,234 @@ class _CropImageState extends State<CropImage>
   }
 
   Widget bottomBar() {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       color: OSColors.chromeBackground,
       child: SafeArea(
         top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: OSSpace.sm, vertical: OSSpace.sm),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: <Widget>[
-              _CropAction(
-                icon: Icons.auto_awesome_rounded,
-                label: AppLocalizations.of(context)!.automatic_crop,
-                accent: true,
-                // Asking for the automatic crop is asking for detection's
-                // corners, including ones that arrive after the tap.
-                onPressed: () => setState(() {
-                  _cropScreen.userAdjusted = false;
-                  _cropScreen.initPoints();
-                }),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _captionStrip(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  OSSpace.xs, 0, OSSpace.xs, OSSpace.xs),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: <Widget>[
+                  _CropAction(
+                    icon: Icons.auto_awesome_rounded,
+                    label: l10n.automatic_crop,
+                    accent: !_textMode,
+                    // Asking for the automatic crop is asking for
+                    // detection's corners, including ones that arrive
+                    // after the tap.
+                    onPressed: () => setState(() {
+                      _textMode = false;
+                      _cropScreen.userAdjusted = false;
+                      _cropScreen.initPoints();
+                    }),
+                  ),
+                  _CropAction(
+                    icon: Icons.crop_free_rounded,
+                    label: l10n.no_crop,
+                    onPressed: () => setState(() {
+                      _textMode = false;
+                      _cropScreen.userAdjusted = true;
+                      _cropScreen.resetPointsToCorners();
+                    }),
+                  ),
+                  _CropAction(
+                    icon: Icons.rotate_right_rounded,
+                    label: l10n.rotate,
+                    onPressed: _rotate,
+                  ),
+                  _CropAction(
+                    icon: Icons.text_fields_rounded,
+                    label: l10n.mark_text,
+                    accent: _textMode,
+                    onPressed: () => setState(() => _textMode = !_textMode),
+                  ),
+                ],
               ),
-              _CropAction(
-                icon: Icons.crop_free_rounded,
-                label: AppLocalizations.of(context)!.no_crop,
-                onPressed: () => setState(() {
-                  _cropScreen.userAdjusted = true;
-                  _cropScreen.resetPointsToCorners();
-                }),
-              ),
-              _CropAction(
-                icon: Icons.rotate_right_rounded,
-                label: AppLocalizations.of(context)!.rotate,
-                onPressed: _rotate,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  // <=========================== Caption ===========================>
+
+  /// The caption so far, above the actions: what was read or typed, or how
+  /// to get one. Tapping it opens the editor.
+  Widget _captionStrip() {
+    final l10n = AppLocalizations.of(context)!;
+    final accent = Theme.of(context).colorScheme.primary;
+    return ValueListenableBuilder(
+      valueListenable: _cropScreen.regionsBeingRead,
+      builder: (context, int reading, _) => ValueListenableBuilder(
+        valueListenable: _cropScreen.metadata,
+        builder: (context, PhotoMetadata metadata, _) {
+          final summary = metadataSummary(metadata);
+          return InkWell(
+            onTap: reading > 0 ? null : _editMetadata,
+            child: SizedBox(
+              height: _kCaptionStripHeight,
+              child: Padding(
+                padding: const EdgeInsets.only(left: OSSpace.md),
+                child: Row(
+                  children: [
+                    if (reading > 0)
+                      const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    else
+                      Icon(Icons.notes_rounded,
+                          size: 18,
+                          color: summary == null
+                              ? OSColors.chromeMuted
+                              : accent),
+                    const SizedBox(width: OSSpace.sm),
+                    Expanded(
+                      child: Text(
+                        reading > 0
+                            ? l10n.reading_text
+                            : summary ?? l10n.caption_empty_hint,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: OSTypography.caption.copyWith(
+                          color: summary == null || reading > 0
+                              ? OSColors.chromeMuted
+                              : OSColors.chromeOnBackground,
+                        ),
+                      ),
+                    ),
+                    if (summary != null && reading == 0)
+                      IconButton(
+                        tooltip: l10n.clear_caption,
+                        icon: const Icon(Icons.close_rounded,
+                            size: 18, color: OSColors.chromeMuted),
+                        onPressed: _clearCaption,
+                      )
+                    else
+                      const SizedBox(width: OSSpace.md),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// The marked caption regions, drawn turned with the page.
+  Widget _textRegionOverlay() {
+    return IgnorePointer(
+      child: ValueListenableBuilder(
+        valueListenable: _cropScreen.textRegionsChanged,
+        builder: (context, int _, __) => AnimatedBuilder(
+          animation: _turnController,
+          builder: (context, _) {
+            List<Offset> corners(Rect r) => [
+                  for (final p in [
+                    r.topLeft,
+                    r.topRight,
+                    r.bottomRight,
+                    r.bottomLeft,
+                  ])
+                    _cropScreen.toDisplay(p, turns: _animatedTurns),
+                ];
+            final draft = _cropScreen.draftTextRegion;
+            return CustomPaint(
+              painter: TextRegionPainter(
+                regions: [for (final r in _cropScreen.textRegions) corners(r)],
+                draft: draft == null ? null : corners(draft),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// What to do in text mode, until the first box is drawn.
+  Widget _textModeHint() {
+    return ValueListenableBuilder(
+      valueListenable: _cropScreen.textRegionsChanged,
+      builder: (context, int _, __) {
+        if (_cropScreen.textRegions.isNotEmpty ||
+            _cropScreen.draftTextRegion != null) {
+          return const SizedBox.shrink();
+        }
+        return Positioned(
+          top: OSSpace.sm,
+          left: OSSpace.md,
+          right: OSSpace.md,
+          child: IgnorePointer(
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: OSSpace.md, vertical: OSSpace.xs),
+                decoration: BoxDecoration(
+                  color: OSColors.chromeScrim,
+                  borderRadius: BorderRadius.circular(OSRadius.pill),
+                ),
+                child: Text(
+                  AppLocalizations.of(context)!.mark_text_hint,
+                  textAlign: TextAlign.center,
+                  style: OSTypography.caption
+                      .copyWith(color: OSColors.chromeOnBackground),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Reads the text in a region just marked and adds it to the caption.
+  Future<void> _readRegion(Rect region) async {
+    _cropScreen.regionsBeingRead.value++;
+    String? text;
+    try {
+      text = await _cropScreen.readTextRegion(region);
+    } finally {
+      _cropScreen.regionsBeingRead.value--;
+    }
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    if (text == null || text.isEmpty) {
+      // Nothing to add: the box goes again, so what is left on the page
+      // still matches what the caption says.
+      _cropScreen.textRegions.remove(region);
+      _cropScreen.textRegionsChanged.value++;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(text == null
+              ? l10n.text_recognition_unavailable
+              : l10n.no_text_found),
+        ));
+      return;
+    }
+    _cropScreen.metadata.value =
+        _cropScreen.metadata.value.withRecognizedText(text);
+  }
+
+  Future<void> _editMetadata() async {
+    final edited =
+        await editPhotoMetadata(context, _cropScreen.metadata.value);
+    if (edited != null && mounted) _cropScreen.metadata.value = edited;
+  }
+
+  void _clearCaption() {
+    _cropScreen.metadata.value = PhotoMetadata.empty;
+    _cropScreen.clearTextRegions();
   }
 }
 
@@ -531,27 +789,39 @@ class _CropAction extends StatelessWidget {
   final VoidCallback onPressed;
 
   /// Marks the suggested action, so "Automatic crop" reads as the one to
-  /// reach for when the corners have been dragged somewhere wrong.
+  /// reach for when the corners have been dragged somewhere wrong — or
+  /// the active one, for the text mode toggle.
   final bool accent;
 
   @override
   Widget build(BuildContext context) {
     final color =
         accent ? Theme.of(context).colorScheme.primary : OSColors.chromeOnBackground;
-    return InkWell(
-      onTap: onPressed,
-      borderRadius: BorderRadius.circular(OSRadius.card),
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 88, minHeight: 48),
-        padding: const EdgeInsets.symmetric(
-            horizontal: OSSpace.sm, vertical: OSSpace.xs),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(width: OSSpace.xs),
-            Text(label, style: OSTypography.caption.copyWith(color: color)),
-          ],
+    // Icon over label, so four of them fit across a phone in any
+    // language.
+    return Expanded(
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(OSRadius.card),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 52),
+          padding: const EdgeInsets.symmetric(
+              horizontal: OSSpace.xxs, vertical: OSSpace.xs),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(height: OSSpace.xxs),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: OSTypography.caption.copyWith(color: color),
+              ),
+            ],
+          ),
         ),
       ),
     );

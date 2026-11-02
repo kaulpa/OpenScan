@@ -13,6 +13,7 @@ import 'package:openscan/core/theme/os_colors.dart';
 import 'package:openscan/core/theme/os_tokens.dart';
 import 'package:openscan/core/theme/os_typography.dart';
 import 'package:openscan/core/cv/models/quad.dart';
+import 'package:openscan/core/metadata/photo_metadata.dart';
 import 'package:openscan/view/Widgets/live_scan/live_quad_painter.dart';
 import 'package:openscan/view/screens/crop/crop_screen.dart';
 import 'package:openscan/view/screens/live_scan/auto_capture_detector.dart';
@@ -58,6 +59,10 @@ const double _kSideControlSize = 60;
 /// An imported picture is already whatever the user wants it to be — it
 /// was never framed through this viewfinder — so it goes straight into
 /// the document, exactly like a gallery import from the library screen.
+///
+/// [metadata] is the caption and date given on the crop screen, in single
+/// mode; empty for a batch page, which is captioned from its own Crop
+/// button afterwards.
 class LiveCapture {
   final File file;
   final Quad? quad;
@@ -65,6 +70,7 @@ class LiveCapture {
   final bool prepared;
   final File? original;
   final int quarterTurns;
+  final PhotoMetadata metadata;
 
   const LiveCapture({
     required this.file,
@@ -73,6 +79,7 @@ class LiveCapture {
     this.prepared = false,
     this.original,
     this.quarterTurns = 0,
+    this.metadata = PhotoMetadata.empty,
   });
 }
 
@@ -599,11 +606,11 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     // is what the kept original is made from.
     final working = await shot.copy('${dir.path}/review_$stamp.jpg');
     if (!mounted) return;
-    final cropped = await imageCropper(context, working,
+    final outcome = await imageCropper(context, working,
         initialQuad: quad, initialTurns: quarterTurns);
     if (!mounted) return;
 
-    if (cropped == null) {
+    if (outcome == null) {
       if (working.existsSync()) working.deleteSync();
       // A retake starts the auto-capture wait over, as a capture does: the
       // cooldown from the shot just dropped ran out while the crop screen
@@ -622,7 +629,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       return;
     }
 
-    LiveCapture page = LiveCapture(file: cropped);
+    final cropped = outcome.file;
+    LiveCapture page = LiveCapture(file: cropped, metadata: outcome.metadata);
     try {
       final written = await _fileOperations.writeReviewedCapture(
         cropped: cropped,
@@ -638,6 +646,7 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           file: File(written.pagePath),
           original: original == null ? null : File(original),
           prepared: true,
+          metadata: outcome.metadata,
         );
       }
     } catch (e) {
