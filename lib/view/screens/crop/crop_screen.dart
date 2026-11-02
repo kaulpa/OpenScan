@@ -35,11 +35,12 @@ class CropOutcome {
 /// existing page use the null to leave that page alone.
 ///
 /// [initialQuad], in the live-scan overlay's fractional portrait
-/// coordinates, places the corners where the viewfinder had them instead
-/// of detecting the page again on the still. [initialTurns] opens the page
-/// already turned that many quarter turns clockwise, as if Rotate had been
-/// pressed — the corners stay on the page either way. [metadata] is the
-/// caption the page already has, for a re-crop.
+/// coordinates, places the corners where the viewfinder had them; they
+/// then move onto the same outline as found on the still, if it is there.
+/// [initialTurns] opens the page already turned that many quarter turns
+/// clockwise, as if Rotate had been pressed — the corners stay on the page
+/// either way. [metadata] is the caption the page already has, for a
+/// re-crop.
 Future<CropOutcome?> imageCropper(BuildContext context, File image,
     {Quad? initialQuad,
     int initialTurns = 0,
@@ -161,7 +162,11 @@ class _CropImageState extends State<CropImage>
           _cropScreen.getRenderedBoxSize();
           _cropScreen.initPoints();
         });
-        if (initialQuad == null) _detectBehindPage();
+        if (initialQuad == null) {
+          _detectBehindPage();
+        } else {
+          _refineBehindPage();
+        }
       });
     });
 
@@ -477,6 +482,16 @@ class _CropImageState extends State<CropImage>
     if (_cropScreen.detectedQuad != null) {
       setState(_cropScreen.initPoints);
     }
+  }
+
+  /// With corners handed in from the viewfinder: looks for the same
+  /// outline on the photo itself, which is sharper and was taken a moment
+  /// later, and moves the corners onto it if the user hasn't moved them in
+  /// the meantime.
+  Future<void> _refineBehindPage() async {
+    final refined = await _cropScreen.refineDetectedQuad();
+    if (!mounted || !refined || _cropScreen.userAdjusted) return;
+    setState(_cropScreen.initPoints);
   }
 
   /// The primary action, in the app bar rather than the bottom row: the

@@ -208,14 +208,14 @@ Quad _quadOfScalars(List<double> sums, int count) => Quad(
 /// several otherwise-valid candidates instead of taking whichever the
 /// sweep reaches first.
 double _qualityScore(Quad quad, int width, int height) {
-  final areaRatio = _polygonArea(quad.points) / (width * height);
-  return areaRatio * (1 - _maxAngleDeviationFraction(quad));
+  final areaRatio = polygonArea(quad.points) / (width * height);
+  return areaRatio * (1 - maxAngleDeviationFraction(quad));
 }
 
 /// Largest per-corner deviation from a perfect 90-degree angle, across all
 /// 4 corners, normalized to [0,1] (0 = every corner is exactly 90 degrees;
 /// 1 = a corner is maximally skewed, i.e. 0 or 180 degrees).
-double _maxAngleDeviationFraction(Quad quad) {
+double maxAngleDeviationFraction(Quad quad) {
   final pts = quad.points;
   double maxDeviation = 0;
   for (int i = 0; i < pts.length; i++) {
@@ -443,7 +443,8 @@ bool _isConvex(List<Pt> pts) {
   return true;
 }
 
-double _polygonArea(List<Pt> pts) {
+/// Area enclosed by the polygon [pts] (shoelace formula).
+double polygonArea(List<Pt> pts) {
   double area = 0;
   for (int i = 0; i < pts.length; i++) {
     final a = pts[i], b = pts[(i + 1) % pts.length];
@@ -474,7 +475,7 @@ const double kMinQuadAngleDegrees = 15.0;
 bool isPlausibleQuad(Quad quad, int width, int height) {
   final pts = quad.points;
 
-  final area = _polygonArea(pts);
+  final area = polygonArea(pts);
   if (width <= 0 || height <= 0) return false;
   if (area / (width * height) < kMinQuadAreaRatio) return false;
 

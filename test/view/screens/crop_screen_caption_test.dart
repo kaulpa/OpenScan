@@ -25,9 +25,16 @@ Future<void> _settleUntil(WidgetTester tester, bool Function() done) async {
   expect(done(), isTrue, reason: 'timed out waiting for the crop screen');
 }
 
-/// Corners handed in, as the live scan does, so the screen skips edge
-/// detection: that runs on behind the page with a timeout of its own, and
-/// a test that ends before it has settled leaves the timer pending.
+/// Lets the work the crop screen does behind its page — decoding the photo
+/// and looking for the outline on it, under a timeout of its own — run
+/// out, then fakes time past that timeout, so no timer is left pending
+/// when the test ends.
+Future<void> _windDown(WidgetTester tester) async {
+  await tester.runAsync(() => Future<void>.delayed(const Duration(seconds: 1)));
+  await tester.pump(const Duration(seconds: 9));
+}
+
+/// Corners handed in, as the live scan does.
 const _corners = Quad(
   topLeft: Pt(0.1, 0.1),
   topRight: Pt(0.9, 0.1),
@@ -105,6 +112,7 @@ void main() {
     }
     expect(find.textContaining('Noch keine Beschreibung'), findsOneWidget);
     expect(tester.takeException(), isNull);
+    await _windDown(tester);
   });
 
   testWidgets('text mode turns a drag into a marked region, and says when it '
@@ -129,6 +137,7 @@ void main() {
           .isNotEmpty,
     );
     expect(tester.takeException(), isNull);
+    await _windDown(tester);
   });
 
   testWidgets('hands back the caption the page arrived with', (tester) async {
@@ -149,5 +158,6 @@ void main() {
       const PhotoMetadata(caption: 'Oma in Bern', date: '1952'),
     );
     expect(outcome!.file.existsSync(), isTrue);
+    await _windDown(tester);
   });
 }

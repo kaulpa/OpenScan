@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:openscan/core/cv/contours.dart';
 import 'package:openscan/core/cv/document_detector.dart';
 import 'package:openscan/core/cv/models/detection_result.dart';
 import 'package:openscan/core/cv/models/point.dart';
@@ -213,16 +214,22 @@ class CropScreenState {
   /// size detection works at: decoding a full-resolution capture in pure
   /// Dart first kept the crop screen blank for over five seconds. Null
   /// when the platform can't decode the file, leaving the Dart path to try.
-  Future<DetectionResult?> _detectFromScaledDecode() async {
+  ///
+  /// [previous], in the photo's pixels, is an outline to look for again
+  /// (see [refineDetectedQuad]).
+  Future<DetectionResult?> _detectFromScaledDecode({Quad? previous}) async {
     final pixels = await decodeScaled(await imageFile!.readAsBytes(),
         maxEdge: kDetectionMaxDimension, label: imageFile!.path);
     if (pixels == null) return null;
+    final width = imageSize!.width, height = imageSize!.height;
     final quad = await compute(detectQuadInRgbaIsolateEntry, {
       'rgba': pixels.rgba,
       'width': pixels.width,
       'height': pixels.height,
+      if (previous != null)
+        'previous':
+            previous.scaled(pixels.width / width, pixels.height / height),
     }).timeout(const Duration(seconds: 8));
-    final width = imageSize!.width, height = imageSize!.height;
     if (quad == null) {
       return DetectionNotFound(width.round(), height.round());
     }
@@ -232,6 +239,39 @@ class CropScreenState {
       height.round(),
     );
   }
+
+  /// Looks on the photo itself for the outline [detectedQuad] holds — the
+  /// live scan's, found on a small preview frame a moment before the
+  /// shutter — and takes the photo's sharper corners for it when the same
+  /// outline is there. True when it took them.
+  Future<bool> refineDetectedQuad() async {
+    final prior = detectedQuad;
+    final size = imageSize;
+    if (prior == null || size == null) return false;
+    try {
+      final result = await _detectFromScaledDecode(previous: prior);
+      if (result is! DetectionSuccess) return false;
+      final match = bestCornerAssignment(result.quad.points, prior);
+      final diagonal =
+          sqrt(size.width * size.width + size.height * size.height);
+      // Something else found on the photo is not a sharper view of what
+      // the viewfinder showed.
+      if (match.totalDistance / 4 > _kSameOutlineFraction * diagonal) {
+        return false;
+      }
+      detectedQuad = match.quad;
+      return true;
+    } catch (e) {
+      debugPrint('Could not refine the corners on the photo: $e');
+      return false;
+    }
+  }
+
+  /// How far, on average and as a share of the photo's diagonal, the
+  /// corners found on the photo may be from the viewfinder's and still be
+  /// taken for the same outline: the phone moves a little between the
+  /// preview frame and the shutter.
+  static const double _kSameOutlineFraction = 0.04;
 
   /// The page as drawn on screen: decoded at no more than 1600px on its
   /// long side, plenty for a phone-sized view of it. Decoding the full
