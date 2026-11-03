@@ -5,7 +5,7 @@ description: OpenScan Foto — a fork of OpenScan for digitising old photo
 
 publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
-version: 3.1.0-foto.5+5
+version: 3.1.0-foto.6+6
 
 environment:
   sdk: '>=3.10.0 <4.0.0'

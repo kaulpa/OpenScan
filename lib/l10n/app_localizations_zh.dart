@@ -414,6 +414,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composition_grid => '构图网格';
 
   @override
+  String get turn_captures => 'Turn captures';
+
+  @override
+  String captures_turned(int degrees) {
+    return 'Captures are turned $degrees° clockwise';
+  }
+
+  @override
+  String get captures_not_turned => 'Captures are not turned';
+
+  @override
   String get switch_camera => '切换摄像头';
 
   @override

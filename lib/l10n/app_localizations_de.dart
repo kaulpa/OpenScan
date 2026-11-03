@@ -426,6 +426,17 @@ class AppLocalizationsDe extends AppLocalizations {
   String get composition_grid => 'Gitternetz';
 
   @override
+  String get turn_captures => 'Aufnahmen drehen';
+
+  @override
+  String captures_turned(int degrees) {
+    return 'Aufnahmen werden um $degrees° gedreht';
+  }
+
+  @override
+  String get captures_not_turned => 'Aufnahmen werden nicht gedreht';
+
+  @override
   String get switch_camera => 'Kamera wechseln';
 
   @override

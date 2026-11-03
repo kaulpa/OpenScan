@@ -875,6 +875,24 @@ abstract class AppLocalizations {
   /// **'Composition grid'**
   String get composition_grid;
 
+  /// No description provided for @turn_captures.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn captures'**
+  String get turn_captures;
+
+  /// Notice over the viewfinder after the turn button
+  ///
+  /// In en, this message translates to:
+  /// **'Captures are turned {degrees}° clockwise'**
+  String captures_turned(int degrees);
+
+  /// No description provided for @captures_not_turned.
+  ///
+  /// In en, this message translates to:
+  /// **'Captures are not turned'**
+  String get captures_not_turned;
+
   /// No description provided for @switch_camera.
   ///
   /// In en, this message translates to:

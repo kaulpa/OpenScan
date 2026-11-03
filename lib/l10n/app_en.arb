@@ -220,6 +220,17 @@
   "auto_capture_needs_detection": "Turn on edge detection first — auto-capture waits for the page it finds.",
   "undo_last_capture": "Undo last capture",
   "composition_grid": "Composition grid",
+  "turn_captures": "Turn captures",
+  "captures_turned": "Captures are turned {degrees}° clockwise",
+  "@captures_turned": {
+    "description": "Notice over the viewfinder after the turn button",
+    "placeholders": {
+      "degrees": {
+        "type": "int"
+      }
+    }
+  },
+  "captures_not_turned": "Captures are not turned",
   "switch_camera": "Switch camera",
   "couldnt_capture": "Couldn't capture — please try again.",
   "couldnt_open_gallery": "Couldn't open the gallery.",

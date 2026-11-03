@@ -425,6 +425,17 @@ class AppLocalizationsHi extends AppLocalizations {
   String get composition_grid => 'संयोजन ग्रिड';
 
   @override
+  String get turn_captures => 'Turn captures';
+
+  @override
+  String captures_turned(int degrees) {
+    return 'Captures are turned $degrees° clockwise';
+  }
+
+  @override
+  String get captures_not_turned => 'Captures are not turned';
+
+  @override
   String get switch_camera => 'कैमरा बदलें';
 
   @override

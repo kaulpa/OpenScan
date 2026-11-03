@@ -128,6 +128,12 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   double _iconTurns = 0;
   int _lastDeviceTurns = 0;
 
+  /// Clockwise quarter turns the user asked every capture to be given, on
+  /// top of the phone's own hold: for a print lying on its side in the
+  /// album, which no way of holding the phone over it can tell. Kept for
+  /// the session, so a run of sideways prints needs one tap.
+  int _captureTurns = 0;
+
   CameraController? _cameraController;
   Future<void>? _initializeFuture;
   int _frameCounter = 0;
@@ -484,10 +490,13 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         : null;
     // Read with the quad, as the shutter fires, for the same reason. Back
     // camera only: the front one is mirrored, so its turns run the other
-    // way, and a selfie of a page is rare enough to leave as shot.
-    final turnsAtCapture = _lensDirection == CameraLensDirection.back
-        ? _orientation.uprightTurns
-        : 0;
+    // way, and a selfie of a page is rare enough to leave as shot. The
+    // turns the user set come on top either way.
+    final turnsAtCapture = ((_lensDirection == CameraLensDirection.back
+                ? _orientation.uprightTurns
+                : 0) +
+            _captureTurns) %
+        4;
     setState(() {
       _capturing = true;
       // With a page on screen the capture is acknowledged inside that
@@ -781,6 +790,19 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     if (!mounted) return;
     _showNotice(
       _autoCaptureEnabled ? l10n.auto_capture_on : l10n.auto_capture_off,
+      const Duration(milliseconds: 1500),
+    );
+  }
+
+  /// The top bar's turn button: every capture from now on a quarter turn
+  /// further clockwise, round to none again, said in the guidance line.
+  void _onTurnPressed() {
+    final l10n = AppLocalizations.of(context)!;
+    setState(() => _captureTurns = (_captureTurns + 1) % 4);
+    _showNotice(
+      _captureTurns == 0
+          ? l10n.captures_not_turned
+          : l10n.captures_turned(_captureTurns * 90),
       const Duration(milliseconds: 1500),
     );
   }
@@ -1179,7 +1201,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   // <========================= Chrome =========================>
 
   /// Every camera control on one row above the viewfinder: torch, edge
-  /// detection and auto-capture, the composition grid and the lens switch.
+  /// detection and auto-capture, the turn given to captures, the
+  /// composition grid and the lens switch.
   /// Nothing hides behind a caret — the row is short enough to show all of
   /// it at once.
   ///
@@ -1190,6 +1213,10 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     final l10n = AppLocalizations.of(context)!;
     final canTorch = _cameraController != null &&
         _lensDirection == CameraLensDirection.back;
+    // Six buttons and their gaps take 352dp at full size: on the narrowest
+    // phones they come a size down rather than run off the edge.
+    final size = MediaQuery.sizeOf(context).width < 360 ? 40.0 : 48.0;
+    final iconSize = size * 0.54;
     return Padding(
       padding: const EdgeInsets.symmetric(
           horizontal: OSSpace.md, vertical: OSSpace.xs),
@@ -1197,6 +1224,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         children: [
           _ChromeButton(
             turns: _iconTurns,
+            size: size,
+            iconSize: iconSize,
             icon: _torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
             tooltip: _torchOn ? l10n.torch_on : l10n.torch_off,
             // The torch is the fix for the low-light warning, so it
@@ -1208,6 +1237,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           const SizedBox(width: OSSpace.xs),
           _ChromeButton(
             turns: _iconTurns,
+            size: size,
+            iconSize: iconSize,
             icon: Icons.auto_awesome_rounded,
             tooltip: l10n.live_detection,
             highlight: _detectionEnabled,
@@ -1216,6 +1247,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           const SizedBox(width: OSSpace.xs),
           _ChromeButton(
             turns: _iconTurns,
+            size: size,
+            iconSize: iconSize,
             icon: Icons.motion_photos_auto_rounded,
             tooltip: _autoCaptureEnabled
                 ? l10n.auto_capture_on
@@ -1229,6 +1262,18 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           const Spacer(),
           _ChromeButton(
             turns: _iconTurns,
+            size: size,
+            iconSize: iconSize,
+            icon: Icons.rotate_90_degrees_cw_rounded,
+            tooltip: l10n.turn_captures,
+            highlight: _captureTurns != 0,
+            onPressed: _onTurnPressed,
+          ),
+          const SizedBox(width: OSSpace.xs),
+          _ChromeButton(
+            turns: _iconTurns,
+            size: size,
+            iconSize: iconSize,
             icon: Icons.grid_3x3_rounded,
             tooltip: l10n.composition_grid,
             highlight: _gridVisible,
@@ -1237,6 +1282,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           const SizedBox(width: OSSpace.xs),
           _ChromeButton(
             turns: _iconTurns,
+            size: size,
+            iconSize: iconSize,
             icon: Icons.cameraswitch_rounded,
             tooltip: l10n.switch_camera,
             onPressed: (_cameraController != null && Globals.cameras.length > 1)
