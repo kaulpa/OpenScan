@@ -36,8 +36,25 @@ void main() {
       expect(findPhotoDate('Postleitzahl 8050'), isNull);
       expect(findPhotoDate('31.02.1968'), '1968');
       expect(findPhotoDate('Wanderung'), isNull);
-      // A two-digit year could be any century.
-      expect(findPhotoDate('12.7.68'), isNull);
+    });
+
+    test('reads two-digit years the way albums write them', () {
+      expect(findPhotoDate('Bachtelabfahrt Febr. 87'), '1987-02');
+      expect(findPhotoDate('Juli 68'), '1968-07');
+      expect(findPhotoDate('12.7.68'), '1968-07-12');
+      expect(findPhotoDate('Kindergarten 86-87'), '1986');
+      expect(findPhotoDate('86/87'), '1986');
+      expect(findPhotoDate("Sommer '72"), '1972');
+      expect(findPhotoDate('1.1.05'), '2005-01-01');
+      // A four-digit year anywhere wins.
+      expect(findPhotoDate('Febr. 87, eigentlich 1988'), '1988');
+    });
+
+    test('does not take any pair of numbers for a two-digit year', () {
+      expect(findPhotoDate('Zimmer 12-14'), isNull);
+      expect(findPhotoDate('Geburtstag 12.07'), isNull);
+      expect(findPhotoDate('Gruppe 3 von 12'), isNull);
+      expect(findPhotoDate('Wagen 34'), isNull);
     });
 
     test('does not take a month name out of a longer word', () {

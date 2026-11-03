@@ -664,12 +664,14 @@ class CropScreenState {
   }
 
   /// Reads the text inside [region] of the photo, turned the way the page
-  /// is being shown, so a caption read upright on screen is read upright.
+  /// is being shown, so a caption read upright on screen is read upright
+  /// — or turned [turns], for one found written up the side of a print
+  /// ([findCaptionRegion]).
   ///
   /// Must run before [crop]: that writes the cropped page over the photo
   /// the region was marked on. Returns null when recognition isn't
   /// available, '' when the region holds no text it can make out.
-  Future<String?> readTextRegion(Rect region) async {
+  Future<String?> readTextRegion(Rect region, {int? turns}) async {
     final size = imageSize;
     if (size == null || canvasSize.width <= 0 || canvasSize.height <= 0) {
       return null;
@@ -689,16 +691,18 @@ class CropScreenState {
       corners: corners,
       width: (region.width / canvasSize.width * size.width).round(),
       height: (region.height / canvasSize.height * size.height).round(),
-      quarterTurns: quarterTurns,
+      quarterTurns: turns ?? quarterTurns,
     );
   }
 
   /// Where, in canvas coordinates, the caption of the photo inside the
-  /// corners is on the page ([locateCaption]), read the way the page is
-  /// being shown. Null when there is none, or no recognizer.
+  /// corners is on the page ([locateCaption]), and the quarter turns it
+  /// reads the right way up at: the page's own, or a quarter turn further
+  /// for one written up the side of a print. Null when there is none, or
+  /// no recognizer.
   ///
   /// Like [readTextRegion], must run before [crop].
-  Future<Rect?> findCaptionRegion() async {
+  Future<({Rect region, int quarterTurns})?> findCaptionRegion() async {
     final size = imageSize;
     if (size == null || canvasSize.width <= 0 || canvasSize.height <= 0) {
       return null;
@@ -719,8 +723,11 @@ class CropScreenState {
       quarterTurns: quarterTurns,
     );
     if (caption == null) return null;
-    return Rect.fromPoints(
-        toCanvas(caption.topLeft), toCanvas(caption.bottomRight));
+    return (
+      region: Rect.fromPoints(toCanvas(caption.region.topLeft),
+          toCanvas(caption.region.bottomRight)),
+      quarterTurns: caption.quarterTurns,
+    );
   }
 
   /// Calculates displacement of point wrt to slope

@@ -2,7 +2,7 @@ import 'dart:math';
 import 'dart:ui';
 
 /// Finding the caption that belongs to a photo among the lines of text the
-/// recognizer finds on the page around it (`findTextLines`), so it can be
+/// recognizer finds on the page around it (`locateCaption`), so it can be
 /// marked and read without the user drawing a box round it.
 
 /// One line of text found on a page.

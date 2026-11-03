@@ -54,6 +54,7 @@ const Map<String, int> _kMonths = {
   'jänner': 1,
   'january': 1,
   'februar': 2,
+  'febr': 2,
   'feb': 2,
   'february': 2,
   'märz': 3,
@@ -102,9 +103,14 @@ bool _validDay(int year, int month, int day) {
 /// (`1968`, `1968-07`, `1968-07-12`), or null when there is none.
 ///
 /// Full dates win over a month and year, which win over a bare year, so
-/// "Juli 1968, Rimini – 12.7.1968" yields `1968-07-12`. Two-digit years
-/// are left alone: `12.7.68` could be 1868 or 1968, and a wrong century
-/// is worse than no date.
+/// "Juli 1968, Rimini – 12.7.1968" yields `1968-07-12`.
+///
+/// Only when there is no four-digit year are two-digit ones read, the way
+/// albums write them: `12.7.68`, `Febr. 87`, `'72`, and a school year,
+/// `86-87` or `86/87`, as its first year. They are taken as the most
+/// recent year they can be: `05` is 2005, `87` 1987. A pair of numbers
+/// that isn't a school year (`12-14`), or a day and month with no year
+/// (`12.07`), is no date.
 String? findPhotoDate(String text) {
   final lower = text.toLowerCase();
 
@@ -169,7 +175,50 @@ String? findPhotoDate(String text) {
     final year = int.parse(m.group(1)!);
     if (_plausibleYear(year)) return '$year';
   }
+
+  // 12.7.68
+  for (final m in RegExp(
+    r'(?<![\d.])(\d{1,2})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{2})(?![\d.])',
+  ).allMatches(lower)) {
+    final day = int.parse(m.group(1)!);
+    final month = int.parse(m.group(2)!);
+    final year = _fromTwoDigits(int.parse(m.group(3)!));
+    if (_plausibleYear(year) && _validDay(year, month, day)) {
+      return '$year-${_two(month)}-${_two(day)}';
+    }
+  }
+
+  // Febr. 87, Juli 68
+  for (final m in RegExp(r"([a-zäöü]+)\.?\s*['’]?(\d{2})(?![\d.])")
+      .allMatches(lower)) {
+    final month = _kMonths[m.group(1)!];
+    final year = _fromTwoDigits(int.parse(m.group(2)!));
+    if (month != null && _plausibleYear(year)) {
+      return '$year-${_two(month)}';
+    }
+  }
+
+  // 86-87, 86/87: a school year
+  for (final m in RegExp(r'(?<![\d.])(\d{2})\s*[-/]\s*(\d{2})(?![\d.])')
+      .allMatches(lower)) {
+    final first = int.parse(m.group(1)!), second = int.parse(m.group(2)!);
+    final year = _fromTwoDigits(first);
+    if (second == (first + 1) % 100 && _plausibleYear(year)) return '$year';
+  }
+
+  // '72
+  for (final m in RegExp(r"['’](\d{2})(?![\d.])").allMatches(lower)) {
+    final year = _fromTwoDigits(int.parse(m.group(1)!));
+    if (_plausibleYear(year)) return '$year';
+  }
   return null;
+}
+
+/// The most recent year ending in [twoDigits].
+int _fromTwoDigits(int twoDigits) {
+  final now = DateTime.now().year;
+  final year = now - now % 100 + twoDigits;
+  return year > now ? year - 100 : year;
 }
 
 /// Reads a date the user typed into the partial ISO form [PhotoMetadata]

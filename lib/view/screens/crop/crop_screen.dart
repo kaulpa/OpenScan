@@ -506,11 +506,12 @@ class _CropImageState extends State<CropImage>
     if (!untouched()) return;
     _cropScreen.regionsBeingRead.value++;
     try {
-      final region = await _cropScreen.findCaptionRegion();
-      if (!mounted || region == null || !untouched()) return;
-      _cropScreen.textRegions.add(region);
+      final found = await _cropScreen.findCaptionRegion();
+      if (!mounted || found == null || !untouched()) return;
+      _cropScreen.textRegions.add(found.region);
       _cropScreen.textRegionsChanged.value++;
-      await _readRegion(region, quietly: true);
+      await _readRegion(found.region,
+          turns: found.quarterTurns, quietly: true);
     } finally {
       _cropScreen.regionsBeingRead.value--;
     }
@@ -771,14 +772,16 @@ class _CropImageState extends State<CropImage>
     );
   }
 
-  /// Reads the text in a region just marked and adds it to the caption.
-  /// [quietly], for one marked by the screen itself, says nothing when
-  /// there turns out to be nothing to read.
-  Future<void> _readRegion(Rect region, {bool quietly = false}) async {
+  /// Reads the text in a region just marked and adds it to the caption,
+  /// turned the way the page is shown or by [turns]. [quietly], for one
+  /// marked by the screen itself, says nothing when there turns out to be
+  /// nothing to read.
+  Future<void> _readRegion(Rect region,
+      {int? turns, bool quietly = false}) async {
     _cropScreen.regionsBeingRead.value++;
     String? text;
     try {
-      text = await _cropScreen.readTextRegion(region);
+      text = await _cropScreen.readTextRegion(region, turns: turns);
     } finally {
       _cropScreen.regionsBeingRead.value--;
     }

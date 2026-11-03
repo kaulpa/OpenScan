@@ -25,6 +25,9 @@ const int _kMaxRegionEdge = 2400;
 /// the right way up on the turned page reads the right way up here.
 /// [width] x [height] is the region's size in the photo's own pixels.
 ///
+/// A region much taller than wide that holds nothing readable is tried on
+/// its side as well, either way: a caption written up the edge of a print.
+///
 /// Returns the text, '' when the region holds none the recognizer can
 /// make out, or null when recognition isn't available at all: not
 /// Android, or the region couldn't be cut out of the photo.
@@ -35,6 +38,32 @@ Future<String?> readTextInRegion({
   required int height,
   int quarterTurns = 0,
 }) async {
+  final upright = await _readTurned(src, corners, width, height, quarterTurns);
+  final readWidth = quarterTurns.isOdd ? height : width;
+  final readHeight = quarterTurns.isOdd ? width : height;
+  if (upright == null || upright.isNotEmpty || readHeight < 1.5 * readWidth) {
+    return upright;
+  }
+  for (final extra in const [1, 3]) {
+    final text = await _readTurned(
+      src,
+      corners,
+      width,
+      height,
+      (quarterTurns + extra) % 4,
+    );
+    if (text != null && text.isNotEmpty) return text;
+  }
+  return upright;
+}
+
+Future<String?> _readTurned(
+  String src,
+  Quad corners,
+  int width,
+  int height,
+  int quarterTurns,
+) async {
   if (!Platform.isAndroid) return null;
 
   final dir = Directory('${(await getTemporaryDirectory()).path}/staging/ocr');
@@ -68,100 +97,122 @@ Future<String?> readTextInRegion({
 }
 
 /// Long edge a whole page is handed to the recognizer at to find its lines
-/// ([findTextLines]): a caption a few percent of the page tall is still
+/// ([locateCaption]): a caption a few percent of the page tall is still
 /// tens of pixels high there.
 const int _kPageEdge = 2000;
 
-/// Every line of text on the photo at [src] ([width] x [height], the right
-/// way up), turned [quarterTurns] clockwise first so writing that reads
-/// the right way up on the turned page reads the right way up here. Null
-/// when recognition isn't available.
-Future<List<TextLine>?> findTextLines({
-  required String src,
-  required int width,
-  required int height,
-  int quarterTurns = 0,
-}) async {
-  if (!Platform.isAndroid) return null;
-
+/// The photo at [src] ([width] x [height], the right way up), cut out at
+/// [_kPageEdge] turned [quarterTurns] clockwise, for its lines to be found
+/// on ([_linesOn]). Null when that fails.
+Future<({String path, int width, int height})?> _cutPage(
+  String src,
+  int width,
+  int height,
+  int quarterTurns,
+) async {
   final dir = Directory('${(await getTemporaryDirectory()).path}/staging/ocr');
   if (!await dir.exists()) await dir.create(recursive: true);
   final dest = '${dir.path}/page_${DateTime.now().microsecondsSinceEpoch}.jpg';
-
   final scale = min(1.0, _kPageEdge / max(1, max(width, height)));
   final outWidth = max(1, (width * scale).round());
   final outHeight = max(1, (height * scale).round());
-  // The page as read, after the turn.
-  final readWidth = quarterTurns.isOdd ? outHeight : outWidth;
-  final readHeight = quarterTurns.isOdd ? outWidth : outHeight;
+  final cut = await storeOnPlatform(
+    src: src,
+    quarterTurns: quarterTurns,
+    outputs: [
+      PlatformOutput(
+        dest: dest,
+        corners: PlatformOutput.wholeFrame,
+        width: outWidth,
+        height: outHeight,
+        quality: 92,
+      ),
+    ],
+  );
+  if (!cut) return null;
+  return (
+    path: dest,
+    width: quarterTurns.isOdd ? outHeight : outWidth,
+    height: quarterTurns.isOdd ? outWidth : outHeight,
+  );
+}
+
+/// Every line of text on [page], turned [extraTurns] clockwise further,
+/// with boxes as fractions of the page as turned. Null when recognition
+/// isn't available.
+Future<List<TextLine>?> _linesOn(
+  ({String path, int width, int height}) page,
+  int extraTurns,
+) async {
+  final width = extraTurns.isOdd ? page.height : page.width;
+  final height = extraTurns.isOdd ? page.width : page.height;
   try {
-    final cut = await storeOnPlatform(
-      src: src,
-      quarterTurns: quarterTurns,
-      outputs: [
-        PlatformOutput(
-          dest: dest,
-          corners: PlatformOutput.wholeFrame,
-          width: outWidth,
-          height: outHeight,
-          quality: 92,
-        ),
-      ],
-    );
-    if (!cut) return null;
-    final found = await _channel.invokeListMethod<Map>('lines', {'path': dest});
+    final found = await _channel.invokeListMethod<Map>('lines', {
+      'path': page.path,
+      'turns': extraTurns,
+    });
     return [
       for (final m in found ?? const <Map>[])
         TextLine(
           (m['text'] as String?) ?? '',
           Rect.fromLTRB(
-            (m['left'] as num) / readWidth,
-            (m['top'] as num) / readHeight,
-            (m['right'] as num) / readWidth,
-            (m['bottom'] as num) / readHeight,
+            (m['left'] as num) / width,
+            (m['top'] as num) / height,
+            (m['right'] as num) / width,
+            (m['bottom'] as num) / height,
           ),
           (m['block'] as num?)?.toInt() ?? 0,
         ),
     ];
   } on PlatformException catch (e) {
-    debugPrint('Finding text on $src failed: ${e.message}');
+    debugPrint('Finding text on ${page.path} failed: ${e.message}');
   } on MissingPluginException {
     // Tests, or an engine without the channel registered.
-  } finally {
-    final file = File(dest);
-    if (file.existsSync()) file.deleteSync();
   }
   return null;
 }
 
 /// Where the caption of the photo with corners [photo] is on the shot at
 /// [src] ([width] x [height], the right way up): the writing nearest the
-/// photo outside it ([findCaption]), read with the page turned
-/// [quarterTurns] clockwise. [photo] and the result are fractions of the
-/// shot the right way up, unturned. Null when there is none, or no
-/// recognizer.
-Future<Rect?> locateCaption({
+/// photo outside it ([findCaption]), with the page turned [quarterTurns]
+/// clockwise — or, when there is none that way, a quarter turn further
+/// either way, for a caption written up the side of a print lying on its
+/// side. Returns the caption's box, in fractions of the shot the right
+/// way up and unturned like [photo], and the turns it reads the right way
+/// up at. Null when there is none, or no recognizer.
+Future<({Rect region, int quarterTurns})?> locateCaption({
   required String src,
   required int width,
   required int height,
   required List<Offset> photo,
   int quarterTurns = 0,
 }) async {
-  final lines = await findTextLines(
-    src: src,
-    width: width,
-    height: height,
-    quarterTurns: quarterTurns,
-  );
-  if (lines == null) return null;
-  final caption = findCaption(lines, [
-    for (final p in photo) turnFraction(p, quarterTurns),
-  ], aspect: quarterTurns.isOdd ? height / width : width / height);
-  if (caption == null) return null;
-  return Rect.fromPoints(
-    unturnFraction(caption.topLeft, quarterTurns),
-    unturnFraction(caption.bottomRight, quarterTurns),
-  );
+  if (!Platform.isAndroid) return null;
+  final page = await _cutPage(src, width, height, quarterTurns);
+  if (page == null) return null;
+  try {
+    for (final extra in const [0, 1, 3]) {
+      final lines = await _linesOn(page, extra);
+      if (lines == null) return null;
+      final turns = (quarterTurns + extra) % 4;
+      final caption = findCaption(lines, [
+        for (final p in photo) turnFraction(p, turns),
+      ], aspect: turns.isOdd ? height / width : width / height);
+      if (caption != null) {
+        return (
+          region: Rect.fromPoints(
+            unturnFraction(caption.topLeft, turns),
+            unturnFraction(caption.bottomRight, turns),
+          ),
+          quarterTurns: turns,
+        );
+      }
+    }
+    return null;
+  } finally {
+    final file = File(page.path);
+    if (file.existsSync()) file.deleteSync();
+  }
 }
 
 /// The caption of the photo with corners [photo] on the shot at [src],
@@ -175,14 +226,15 @@ Future<PhotoMetadata> readCaption({
   required List<Offset> photo,
   int quarterTurns = 0,
 }) async {
-  final region = await locateCaption(
+  final found = await locateCaption(
     src: src,
     width: width,
     height: height,
     photo: photo,
     quarterTurns: quarterTurns,
   );
-  if (region == null) return PhotoMetadata.empty;
+  if (found == null) return PhotoMetadata.empty;
+  final region = found.region;
   final text = await readTextInRegion(
     src: src,
     corners: Quad(
@@ -193,7 +245,7 @@ Future<PhotoMetadata> readCaption({
     ),
     width: max(1, (region.width * width).round()),
     height: max(1, (region.height * height).round()),
-    quarterTurns: quarterTurns,
+    quarterTurns: found.quarterTurns,
   );
   return text == null || text.isEmpty
       ? PhotoMetadata.empty
